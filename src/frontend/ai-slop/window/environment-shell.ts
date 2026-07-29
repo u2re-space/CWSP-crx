@@ -1,8 +1,8 @@
 /*
  * Filename: environment-shell.ts
  * FullPath: apps/CWSP-shell/src/frontend/ai-slop/window/environment-shell.ts
- * Change date and time: 09.20.00_29.07.2026
- * Reason for changes: Restore hybrid EnvironmentShell adapter as CWSP-shell default host.
+ * Change date and time: 09.58.00_29.07.2026
+ * Reason for changes: Mono native-mode for /explorer?native=1 via window layer.
  */
 /**
  * WHY: Hybrid SoT (plan 1C): wallpaper / SpeedDial / OrientDesktop / taskbar / statusbar /
@@ -38,6 +38,43 @@ import wfDemoCss from "../../../../../../modules/shells/window-frame/public/demo
 import envShellStyles from "../../shells/environment/scss/main.scss?inline";
 
 defineEnvironmentShellContainer();
+
+/** `?native=1` or path `/explorer` with native query → mono native start set. */
+function readStartNativeViewIds(): string[] {
+    try {
+        const sp = new URLSearchParams(globalThis.location?.search || "");
+        if (sp.get("native") !== "1" && sp.get("native") !== "true") return [];
+        const view = (sp.get("view") || "").trim().toLowerCase();
+        const path = String(globalThis.location?.pathname || "")
+            .replace(/^\/+|\/+$/g, "")
+            .toLowerCase();
+        const id = view || path || "explorer";
+        if (!id || id === "home") return ["explorer"];
+        return [id === "markdown" ? "viewer" : id];
+    } catch {
+        return [];
+    }
+}
+
+function wantsNative(opts?: ViewOptions | null): boolean {
+    const p = (opts as { params?: Record<string, string>; native?: unknown }) || {};
+    return (
+        p.native === 1 ||
+        p.native === "1" ||
+        p.native === true ||
+        p.params?.native === "1" ||
+        p.params?.native === "true"
+    );
+}
+
+function mergeNativeOpt(viewId: string, opts?: ViewOptions): ViewOptions {
+    const startNative = readStartNativeViewIds();
+    if (!startNative.includes(viewId) && !wantsNative(opts)) return opts || {};
+    const base = { ...(opts || {}) } as ViewOptions & { native?: string; params?: Record<string, string> };
+    base.native = "1";
+    base.params = { ...(base.params || {}), native: "1" };
+    return base;
+}
 
 const CWSP_VIEW_LOADERS: WorkspaceViewLoaderMap = {
     network: () => import("views/network") as any,
@@ -280,10 +317,12 @@ export class EnvironmentShell extends ShellBase {
             chrome.root.remove();
         };
 
+        const startNativeViewIds = readStartNativeViewIds();
         this.windowLayer = createWorkspaceWindowLayer(workspace, {
             overlayMountHost: host,
             environmentShellHost: host,
             viewLoaders: loaders,
+            startNativeViewIds,
             viewTitles: {
                 network: "Network",
                 settings: "Settings",
@@ -338,8 +377,11 @@ export class EnvironmentShell extends ShellBase {
     private openInWindow(viewId: string, opts?: ViewOptions): void {
         const id = String(viewId || "").trim().toLowerCase();
         if (!id || id === "airpad") return;
+        const withNative = mergeNativeOpt(id, opts);
         if (!this.windowLayer?.focusWindow(id)) {
-            void this.windowLayer?.shellContext.openView?.(id, opts);
+            void this.windowLayer?.shellContext.openView?.(id, withNative);
+        } else if (wantsNative(withNative)) {
+            this.windowLayer?.enterNative?.(id);
         }
         this.setFocusedTaskId?.(id === "markdown" ? "viewer" : id);
         this.currentView.value = id as ViewId;
