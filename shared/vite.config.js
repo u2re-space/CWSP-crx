@@ -740,7 +740,7 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             ignored: [
                 "**/node_modules/**",
                 "**/dist/**",
-                "**/dist-crx/**",
+                "**/dist/**",
                 "**/.git/**",
                 "**/runtime/**",
                 "**/externals/**",

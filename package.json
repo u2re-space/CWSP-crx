@@ -1,33 +1,22 @@
 {
-    "name": "crossword",
+    "name": "cwsp-crx",
     "private": true,
     "type": "module",
     "engines": {
         "node": ">=24"
     },
     "scripts": {
-        "build": "npm run build:pwa",
+        "build": "npm run build:crx",
         "build:pwa": "rm -rf ./dist && node ./scripts/run-vite.mjs build && node ./scripts/normalize-worker-names.mjs",
         "postbuild:pwa": "node ./scripts/copy-pwa-to-endpoint.mjs",
-        "build:crx": "rm -rf ./dist-crx && node ./scripts/run-vite.mjs build --config vite.config.js --mode crx && node ./scripts/normalize-worker-names.mjs",
+        "build:crx": "rm -rf ./dist && node ./scripts/run-vite.mjs build --config vite.config.js --mode crx && node ./scripts/normalize-worker-names.mjs",
         "build:crx:lite": "VITE_ENABLED_VIEWS=viewer,editor,settings,history,home,print vite build --config vite.config.js --mode crx",
-        "build:cw-markdown": "rm -rf ./build/cw-markdown && node ./scripts/run-vite.mjs build --config vite.config.js --mode markdown && node ./scripts/normalize-worker-names.mjs --dir build/cw-markdown && node ./scripts/stage-cw-markdown.mjs",
-        "build:all": "node ./scripts/build.mjs pwa crx",
-        "stage:cw-markdown": "node ./scripts/stage-cw-markdown.mjs",
+        "build:all": "node ./scripts/build.mjs crx",
         "build:modules": "node ./scripts/build.mjs modules",
         "preview": "node ./scripts/run-vite.mjs preview",
         "start": "npm run dev",
-        "dev": "VITE_MCP_DISABLE=1 node ./scripts/run-vite.mjs dev",
-        "dev:8434": "VITE_MCP_DISABLE=1 VITE_DEV_PORT=8434 node ./scripts/run-vite.mjs dev",
-        "dev:clean": "rm -rf node_modules/.vite && npm run dev",
-        "dev:full": "node ./scripts/run-vite.mjs dev",
-        "dev:no-sw": "VITE_MCP_DISABLE=1 VITE_PWA_DEV_DISABLE=1 node ./scripts/run-vite.mjs dev",
-        "dev:lite": "npm run dev",
-        "test": "npm run dev",
-        "test:dev": "npm run dev",
-        "test:test": "echo 'No tests configured for crossword' && exit 0",
-        "test:explorer": "npx --yes tsx --test ./src/frontend/views/explorer/inject.test.ts",
-        "sync:cw-markdown": "node ./scripts/stage-cw-markdown.mjs"
+        "dev": "npm run build:crx",
+        "test:test": "echo 'No tests configured for cwsp-crx' && exit 0"
     },
     "browserslist": [
         "last 1 chrome version",

@@ -1,1 +1,0 @@
-function e(e,r=globalThis.localStorage){return{load:()=>(e=>{if(!e)return null;try{return JSON.parse(e)}catch{return null}})(r?.getItem?.(e)??null),save:t=>{r?.setItem?.(e,JSON.stringify(t))},clear:()=>{r?.removeItem?.(e)}}}export{e as createViewState};

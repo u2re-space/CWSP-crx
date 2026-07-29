@@ -105,7 +105,7 @@ const SW_WINDOW_POLYFILL_SOURCE = `/* crx-sw-window-polyfill */
 `;
 
 async function patchCrxServiceWorkerWindowPolyfill(distPath) {
-    if (!normalizePosixPath(distPath).endsWith("dist-crx")) return false;
+    if (!normalizePosixPath(distPath).endsWith("dist")) return false;
     const loaderPath = resolve(distPath, "service-worker-loader.js");
     const text = await fs.readFile(loaderPath, "utf8").catch(() => null);
     if (!text) return false;
@@ -187,9 +187,8 @@ async function run() {
     const dirs = argDir
         ? [resolve(appRoot, argDir)]
         : [
+              // WHY: CWSP-crx owns extension output at `dist/` (not legacy `dist-crx`).
               resolve(appRoot, "dist"),
-              resolve(appRoot, "dist-crx"),
-              resolve(appRoot, "build/cw-markdown")
           ];
     const results = [];
     for (const d of dirs) {

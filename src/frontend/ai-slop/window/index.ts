@@ -1,16 +1,27 @@
+/*
+ * Filename: index.ts
+ * FullPath: apps/CWSP-shell/src/frontend/ai-slop/window/index.ts
+ * Change date and time: 06.20.00_29.07.2026
+ * Reason for changes: Window/tabbed stubs + EnvironmentShell re-exports.
+ */
 /**
- * `shells/window` path target: window / tabbed / environment hosts (extends {@link MinimalShell}).
- * Each needs a distinct {@link ShellId} so routing, `cw-shell-*` tags, and path-based URL rules stay consistent.
+ * `shells/window` path target: window / tabbed hosts (extends {@link MinimalShell}).
+ * Environment is {@link ./environment-shell.ts} via `shells/window/environment`.
  */
 import { MinimalShell } from "../../../../../../modules/shells/minimal-shell/src/preview";
 import type { ShellId, ShellLayoutConfig } from "shells/types";
+
+export {
+    EnvironmentShell,
+    createEnvironmentShell
+} from "./environment-shell";
 
 const windowLikeLayout: ShellLayoutConfig = {
     hasSidebar: false,
     hasToolbar: true,
     hasTabs: false,
     supportsMultiView: true,
-    supportsWindowing: true,
+    supportsWindowing: true
 };
 
 export class WindowShell extends MinimalShell {
@@ -24,13 +35,8 @@ export class TabbedShell extends WindowShell {
     name = "Tabbed";
     layout: ShellLayoutConfig = {
         ...windowLikeLayout,
-        hasTabs: true,
+        hasTabs: true
     };
-}
-
-export class EnvironmentShell extends WindowShell {
-    id: ShellId = "environment";
-    name = "Environment";
 }
 
 export function createWindowShell(_container: HTMLElement): WindowShell {
@@ -39,10 +45,6 @@ export function createWindowShell(_container: HTMLElement): WindowShell {
 
 export function createTabbedShell(_container: HTMLElement): TabbedShell {
     return new TabbedShell();
-}
-
-export function createEnvironmentShell(_container: HTMLElement): EnvironmentShell {
-    return new EnvironmentShell();
 }
 
 export default createWindowShell;

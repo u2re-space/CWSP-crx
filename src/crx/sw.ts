@@ -68,10 +68,9 @@ const TOAST_CHANNEL = "rs-toast";
 const AI_RECOGNITION_CHANNEL = "rs-ai-recognition";
 const POPUP_CHANNEL = "rs-popup";
 
-const broadcast = (channel: string, message: unknown): void => {
-    try { const bc = new BroadcastChannel(channel); bc.postMessage(message); bc.close(); }
-    catch { /* ignore */ }
-};
+// WHY: do not declare `broadcast` here — a richer canonical helper is defined later in this
+// module (`toCanonicalSwBroadcastEnvelope`). Duplicate `const broadcast` breaks Rolldown CRX SW.
+// Call sites below only invoke it at runtime (after init), so the later binding is safe.
 
 const showExtensionToast = (message: string, kind: "info" | "success" | "warning" | "error" = "info"): void =>
     broadcast(TOAST_CHANNEL, { type: "show-toast", options: { message, kind, duration: 3000 } });

@@ -17,13 +17,15 @@ const moduleBuildTargets = [
 ];
 
 const targetMap = {
-    pwa: { cwd: appRoot, command: "npm", args: ["run", "build:pwa"] },
     crx: { cwd: appRoot, command: "npm", args: ["run", "build:crx"] },
+    // Optional leftover PWA path (icons/manifest via src/pwa → CWSP-shell); not the primary product.
+    pwa: { cwd: appRoot, command: "npm", args: ["run", "build:pwa"] },
 };
 
 const normalizeTargets = (raw) => {
-    if (!raw.length) return ["pwa", "crx"];
-    if (raw.includes("all")) return ["pwa", "crx", "modules"];
+    // WHY: this package owns Chrome extension builds; default is CRX-only.
+    if (!raw.length) return ["crx"];
+    if (raw.includes("all")) return ["crx", "modules"];
     return raw;
 };
 

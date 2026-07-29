@@ -117,9 +117,9 @@ legacy/*
 ./dist-pwa
 ./dist-pwa/
 ./dist-pwa/*
-./dist-crx
-./dist-crx/
-./dist-crx/*
+./dist
+./dist/
+./dist/*
 ./dist-modules
 ./dist-modules/
 ./dist-modules/*
@@ -176,14 +176,14 @@ bun.lockb
 !dist/**/*.mjs
 !dist/**/*.css
 !dist/**/*.ts
-!dist-crx/*.ts
-!dist-crx/*.js
-!dist-crx/*.mjs
-!dist-crx/*.css
-!dist-crx/**/*.ts
-!dist-crx/**/*.js
-!dist-crx/**/*.mjs
-!dist-crx/**/*.css
+!dist/*.ts
+!dist/*.js
+!dist/*.mjs
+!dist/*.css
+!dist/**/*.ts
+!dist/**/*.js
+!dist/**/*.mjs
+!dist/**/*.css
 
 #
 !.gitignore

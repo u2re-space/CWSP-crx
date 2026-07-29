@@ -248,8 +248,10 @@ const createCrxConfig = (mode) => {
 
     //
 const { manualChunks: _ignoredCrxManualChunks, ...crxOutputBase } = baseOutput;
-const crxOutput = objectAssign({}, crxOutputBase, {
-        dir: resolve(__dirname, "./dist-crx"),
+// INVARIANT: CRX unpacked output is package-root `dist/` (absolute via __dirname).
+    // Do not use `dist-crx` — Chrome "Load unpacked" should point at apps/CWSP-crx/dist.
+    const crxOutput = objectAssign({}, crxOutputBase, {
+        dir: resolve(__dirname, "./dist"),
         entryFileNames: "app/[name].js",
         chunkFileNames: crxChunkFileNames,
         assetFileNames: distAssetFileNames(NAME),
@@ -292,7 +294,9 @@ const crxOutput = objectAssign({}, crxOutputBase, {
             // Per-entry CSS so content scripts do not share one global stylesheet with popup/viewer.
             cssCodeSplit: true,
             cssMinify: "esbuild",
-            outDir: resolve(__dirname, "./dist-crx"),
+            outDir: resolve(__dirname, "./dist"),
+            // WHY: `root` is `src/crx`; keep clearing package-root `dist`, not a nested path.
+            emptyOutDir: true,
             lib: undefined,
             // Disable modulePreload for CRX - causes broken imports with __vitePreload
             modulePreload: false,
