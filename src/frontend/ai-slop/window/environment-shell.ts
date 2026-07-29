@@ -1,8 +1,8 @@
 /*
  * Filename: environment-shell.ts
  * FullPath: apps/CWSP-shell/src/frontend/ai-slop/window/environment-shell.ts
- * Change date and time: 09.58.00_29.07.2026
- * Reason for changes: Mono native-mode for /explorer?native=1 via window layer.
+ * Change date and time: 13.05.00_29.07.2026
+ * Reason for changes: Mobile Home closes windows (replaces title Close).
  */
 /**
  * WHY: Hybrid SoT (plan 1C): wallpaper / SpeedDial / OrientDesktop / taskbar / statusbar /
@@ -222,6 +222,13 @@ export class EnvironmentShell extends ShellBase {
         }
 
         // WHY: never set attrs inside CE constructor; create via factory then style host here.
+        // WHY: settings profile `environment` prunes CWSP / Server / Extension tabs.
+        try {
+            document.documentElement.dataset.cwspSurface = "environment";
+        } catch {
+            /* ignore */
+        }
+
         const host = createEnvironmentShellContainer();
         host.className = "env-shell-root wf-demo-root";
         host.setAttribute("data-shell", "environment");
@@ -368,7 +375,14 @@ export class EnvironmentShell extends ShellBase {
     }
 
     private focusHome(): void {
-        this.windowLayer?.blurWindows?.();
+        // WHY: Mobile Home replaces title Close — close maximized views so launcher shows.
+        const mobile =
+            typeof matchMedia === "function" && matchMedia("(max-width: 640px)").matches;
+        if (mobile) {
+            this.windowLayer?.closeAllWindows?.();
+        } else {
+            this.windowLayer?.blurWindows?.();
+        }
         this.setFocusedTaskId?.("home");
         this.focusedTaskId.value = "home";
         this.currentView.value = "home" as ViewId;
