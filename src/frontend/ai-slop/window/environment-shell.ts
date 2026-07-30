@@ -313,6 +313,23 @@ export class EnvironmentShell extends ShellBase {
                 },
                 onWindowTask: (viewId) => {
                     void this.openInWindow(viewId);
+                },
+                onMinimizeWindow: (viewId) => {
+                    const id = String(viewId || "").trim().toLowerCase();
+                    if (!id) return;
+                    if (this.windowLayer?.minimizeWindow?.(id)) {
+                        this.setFocusedTaskId?.("home");
+                        this.focusedTaskId.value = "home";
+                    }
+                },
+                onCloseWindow: (viewId) => {
+                    const id = String(viewId || "").trim().toLowerCase();
+                    if (!id) return;
+                    this.windowLayer?.closeWindow?.(id);
+                    if (String(this.focusedTaskId.value || "") === id) {
+                        this.setFocusedTaskId?.("home");
+                        this.focusedTaskId.value = "home";
+                    }
                 }
             }
         });
