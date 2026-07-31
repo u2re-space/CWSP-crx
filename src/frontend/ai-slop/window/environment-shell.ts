@@ -15,7 +15,7 @@
 import { observe, ref } from "fest/object";
 import { preloadStyle, loadInlineStyle } from "fest/dom";
 import { ensureStyleSheet } from "fest/icon";
-import { initializeAppCanvasLayer } from "fest/image";
+import { initializeAppCanvasLayer, restoreWallpaperThemeCache } from "fest/image";
 import type { ShellId, ShellLayoutConfig, ViewId, ViewOptions } from "shells/types";
 import { ShellBase } from "boot/shells";
 import { SHELL_SLOT } from "boot/shell-slots";
@@ -278,6 +278,7 @@ export class EnvironmentShell extends ShellBase {
         this.shellActivityDispose = initBootShellWindowActivity(this.id);
 
         try {
+            restoreWallpaperThemeCache();
             initializeAppCanvasLayer(wallpaper);
         } catch (err) {
             console.warn("[EnvironmentShell] wallpaper init failed", err);
