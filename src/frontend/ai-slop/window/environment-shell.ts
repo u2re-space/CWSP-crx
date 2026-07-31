@@ -1,8 +1,8 @@
 /*
  * Filename: environment-shell.ts
  * FullPath: apps/CWSP-shell/src/frontend/ai-slop/window/environment-shell.ts
- * Change date and time: 13.05.00_29.07.2026
- * Reason for changes: Mobile Home closes windows (replaces title Close).
+ * Change date and time: 07.42.00_31.07.2026
+ * Reason for changes: Use shells/environment aliases — relative paths break when ai-slop/window realpaths into CWSP-crx.
  */
 /**
  * WHY: Hybrid SoT (plan 1C): wallpaper / SpeedDial / OrientDesktop / taskbar / statusbar /
@@ -29,13 +29,14 @@ import {
     seedEnvironmentWallpaperIfUnset,
     type EnvWindowTaskDescriptor,
     type WorkspaceViewLoaderMap
-} from "../../shells/environment/index";
-import { mountViewModule } from "../../shells/environment/window/views/view-mount";
+} from "shells/environment/index";
+import { mountViewModule } from "shells/environment/window/views/view-mount";
 
 // @ts-ignore — Material-ish tokens used by env chrome / home
 import wfDemoCss from "../../../../../../modules/shells/window-frame/public/demo/wf-demo.css?inline";
 // @ts-ignore — shell chrome styles (document-level)
-import envShellStyles from "../../shells/environment/scss/main.scss?inline";
+// WHY: alias (not ../../shells/…) — window tree is shared via CRX realpath; relative shells break in transfer/control builds.
+import envShellStyles from "shells/environment/scss/main.scss?inline";
 
 defineEnvironmentShellContainer();
 
