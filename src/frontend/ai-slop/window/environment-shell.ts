@@ -393,12 +393,13 @@ export class EnvironmentShell extends ShellBase {
     }
 
     private focusHome(): void {
-        // WHY: Mobile Home replaces title Close — close maximized views so launcher shows.
-        const mobile =
-            typeof matchMedia === "function" && matchMedia("(max-width: 640px)").matches;
-        if (mobile) {
-            this.windowLayer?.closeAllWindows?.();
+        // WHY: Home collapses open apps (minimize) — do not dispose; restore via long-press switcher.
+        if (typeof this.windowLayer?.minimizeAllWindows === "function") {
+            this.windowLayer.minimizeAllWindows();
         } else {
+            for (const t of this.windowLayer?.listWindowTasks?.() ?? []) {
+                this.windowLayer?.minimizeWindow?.(t.id);
+            }
             this.windowLayer?.blurWindows?.();
         }
         this.setFocusedTaskId?.("home");
