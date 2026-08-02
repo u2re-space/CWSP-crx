@@ -1,8 +1,8 @@
 /*
  * Filename: environment-shell.ts
  * FullPath: apps/CWSP-shell/src/frontend/ai-slop/window/environment-shell.ts
- * Change date and time: 07.42.00_31.07.2026
- * Reason for changes: Use shells/environment aliases — relative paths break when ai-slop/window realpaths into CWSP-crx.
+ * Change date and time: 10.35.00_02.08.2026
+ * Reason for changes: Mono native deep link keeps `/settings?...` (not root `/?view=`).
  */
 /**
  * WHY: Hybrid SoT (plan 1C): wallpaper / SpeedDial / OrientDesktop / taskbar / statusbar /
@@ -46,10 +46,16 @@ function readStartNativeViewIds(): string[] {
         const sp = new URLSearchParams(globalThis.location?.search || "");
         if (sp.get("native") !== "1" && sp.get("native") !== "true") return [];
         const view = (sp.get("view") || "").trim().toLowerCase();
-        const path = String(globalThis.location?.pathname || "")
+        /* Strip VDS mounts (`/cwsp/settings` → `settings`). */
+        let path = String(globalThis.location?.pathname || "")
             .replace(/^\/+|\/+$/g, "")
             .toLowerCase();
-        const id = view || path || "explorer";
+        const mount = path.match(/^(cwsp|markdown|kvm)\/(.+)$/);
+        if (mount?.[2]) path = mount[2];
+        /* Prefer path segment when present; `view=` survives rewrite to `/`. */
+        const fromPath = path.split("/")[0] || "";
+        const id = ((fromPath && fromPath !== "home" ? fromPath : view) || "explorer")
+            .split("/")[0] || "explorer";
         if (!id || id === "home") return ["explorer"];
         return [id === "markdown" ? "viewer" : id];
     } catch {
@@ -176,6 +182,12 @@ export class EnvironmentShell extends ShellBase {
     private syncWindowTasks: ((windows: EnvWindowTaskDescriptor[]) => void) | null = null;
     private navEcho = ref("");
     private mqLabel = ref("desktop");
+    /** Mono `?native=1` boot — Home desktop deferred until exit-native / explicit Home. */
+    private _monoNativeBoot = false;
+    private _pendingHomeMount: {
+        homeMount: HTMLElement;
+        shellContext: ViewOptions;
+    } | null = null;
 
     /** Unused — light-DOM mount builds nodes imperatively (see {@link mount}). */
     protected createLayout(): HTMLElement {
@@ -382,7 +394,26 @@ export class EnvironmentShell extends ShellBase {
 
         void seedCwspLauncherTiles();
 
-        void mountViewModule(() => import("views/home") as any, homeMount, { shellContext })
+        const isMonoNative = startNativeViewIds.length > 0;
+
+        /*
+         * WHY: mono `/settings?native=1` must not mount the full Home desktop first —
+         * Home/focusHome/minimizeAll races left a native frame with no visible content.
+         * Open the target view immediately; defer Home until the user exits native.
+         */
+        if (isMonoNative) {
+            for (const vid of startNativeViewIds) {
+                this.openInWindow(vid, { native: "1", params: { native: "1" } } as ViewOptions);
+            }
+            this._monoNativeBoot = true;
+            this._pendingHomeMount = { homeMount, shellContext: { shellContext } as ViewOptions };
+        } else {
+            this.mountHomeDesktop(homeMount, shellContext);
+        }
+    }
+
+    private mountHomeDesktop(homeMount: HTMLElement, shellContext: unknown): void {
+        void mountViewModule(() => import("views/home") as any, homeMount, { shellContext } as ViewOptions)
             .then((unmount) => {
                 this.homeUnmount = unmount;
             })
@@ -393,7 +424,17 @@ export class EnvironmentShell extends ShellBase {
             });
     }
 
+    /** Lazily mount Home when leaving mono native (or user presses Home). */
+    private ensureHomeMounted(): void {
+        const pending = this._pendingHomeMount;
+        if (!pending || this.homeUnmount) return;
+        this._pendingHomeMount = null;
+        this._monoNativeBoot = false;
+        this.mountHomeDesktop(pending.homeMount, (pending.shellContext as ViewOptions).shellContext);
+    }
+
     private focusHome(): void {
+        this.ensureHomeMounted();
         // WHY: Home collapses open apps (minimize) — do not dispose; restore via long-press switcher.
         if (typeof this.windowLayer?.minimizeAllWindows === "function") {
             this.windowLayer.minimizeAllWindows();
@@ -414,11 +455,46 @@ export class EnvironmentShell extends ShellBase {
         const withNative = mergeNativeOpt(id, opts);
         if (!this.windowLayer?.focusWindow(id)) {
             void this.windowLayer?.shellContext.openView?.(id, withNative);
-        } else if (wantsNative(withNative)) {
-            this.windowLayer?.enterNative?.(id);
+        }
+        /* WHY: always re-assert native after open/focus — existing frames used to skip it. */
+        if (wantsNative(withNative)) {
+            const promote = (): void => {
+                this.windowLayer?.enterNative?.(id);
+                this.preserveNativeDeepLink(id);
+            };
+            promote();
+            /* WHY: mountUiWindow applyChrome may race the first enterNative. */
+            requestAnimationFrame(promote);
+            setTimeout(promote, 0);
         }
         this.setFocusedTaskId?.(id === "markdown" ? "viewer" : id);
         this.currentView.value = id as ViewId;
+    }
+
+    /**
+     * Keep mono-native deep link as a readable path: `/settings?shell=…&native=1&view=settings`.
+     * WHY: root `/?view=` looked “wrong” in the address bar; path + view= stay in sync so
+     * BootLoader / readStartNativeViewIds still resolve after reloads.
+     * INVARIANT: do not leave a stale `#env-viewer` (tasking) on a Settings mono window.
+     */
+    private preserveNativeDeepLink(viewId: string): void {
+        if (typeof location === "undefined" || typeof history === "undefined") return;
+        try {
+            const id = String(viewId || "").trim().toLowerCase();
+            if (!id || id === "home") return;
+            const sp = new URLSearchParams(location.search || "");
+            sp.set("shell", this.id);
+            sp.set("native", "1");
+            sp.set("view", id);
+            const path = `/${id}`;
+            const next = `${path}?${sp.toString()}`;
+            const cur = `${location.pathname}${location.search}${location.hash || ""}`;
+            if (cur !== next) {
+                history.replaceState({ viewId: id, params: Object.fromEntries(sp) }, "", next);
+            }
+        } catch {
+            /* ignore */
+        }
     }
 
     private async routeView(viewId: string, opts?: ViewOptions): Promise<void> {
@@ -442,10 +518,22 @@ export class EnvironmentShell extends ShellBase {
             return;
         }
         if (id === "home") {
+            /*
+             * WHY: `/?shell=environment&native=1` (path stripped) still means mono boot —
+             * do not collapse to desktop Home; open the start-native view instead.
+             */
+            const startNative = readStartNativeViewIds();
+            if (startNative.length) {
+                for (const vid of startNative) {
+                    this.openInWindow(vid, { native: "1", params: { native: "1", ...(params || {}) } } as ViewOptions);
+                }
+                return;
+            }
             this.focusHome();
             try {
                 const searchParams = new URLSearchParams(params || {});
                 searchParams.set("shell", this.id);
+                searchParams.delete("native");
                 const search = searchParams.toString() ? `?${searchParams.toString()}` : "";
                 const next = `${location.pathname}${search}`;
                 if (`${location.pathname}${location.search}` !== next) {
@@ -456,7 +544,27 @@ export class EnvironmentShell extends ShellBase {
             }
             return;
         }
-        this.openInWindow(id, params ? ({ params } as ViewOptions) : undefined);
+        /*
+         * WHY: BootLoader used to call navigate(viewId) without params — merge address-bar
+         * `native=1` so mono deep links still enter Windows2 native immersive.
+         */
+        let urlParams: Record<string, string> = {};
+        try {
+            urlParams = Object.fromEntries(new URLSearchParams(location.search || ""));
+        } catch {
+            urlParams = {};
+        }
+        const merged = { ...urlParams, ...(params || {}) };
+        const opts = { params: merged } as ViewOptions & { native?: string; params?: Record<string, string> };
+        if (
+            merged.native === "1" ||
+            merged.native === "true" ||
+            readStartNativeViewIds().includes(id)
+        ) {
+            opts.native = "1";
+            opts.params = { ...merged, native: "1" };
+        }
+        this.openInWindow(id, opts);
     }
 
     unmount(): void {
