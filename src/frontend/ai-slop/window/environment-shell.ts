@@ -148,11 +148,9 @@ async function seedCwspLauncherTiles(): Promise<void> {
             } as any);
         };
 
-        ensure("shortcut-network", [0, 0], "wifi-high", "Network", "network");
-        ensure("shortcut-settings", [1, 0], "gear-six", "Settings", "settings");
-        ensure("shortcut-explorer", [2, 0], "books", "Explorer", "explorer");
-        ensure("shortcut-viewer", [3, 0], "article", "Markdown", "viewer");
-        ensure("shortcut-history", [0, 1], "clock-counter-clockwise", "History", "history");
+        /*ensure("shortcut-settings", [0, 0], "gear-six", "Settings", "settings");
+        ensure("shortcut-explorer", [1, 0], "books", "Explorer", "explorer");
+        ensure("shortcut-viewer", [2, 0], "article", "Markdown", "viewer");*/
 
         if (removedAirpad) mod.persistSpeedDialItems?.();
     } catch (err) {
