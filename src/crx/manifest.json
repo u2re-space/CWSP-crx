@@ -67,7 +67,7 @@
                 "assets/*",
                 "chunks/*",
                 "vendor/*",
-                "fest/*",
+                "@fest-lib/*",
                 "com/*",
                 "core/*",
                 "views/*",

@@ -1,5 +1,5 @@
-import type { CrxRuntimeModule, WorkerChannel } from "fest/uniform";
-import { detectExecutionContext } from "fest/uniform";
+import type { CrxRuntimeModule, WorkerChannel } from "@fest-lib/uniform";
+import { detectExecutionContext } from "@fest-lib/uniform";
 
 /**
  * Create a chrome extension runtime messaging channel

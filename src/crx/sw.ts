@@ -31,7 +31,7 @@ import {
 } from "com/core/BuiltInAI";
 import { unifiedMessaging } from "com/core/UnifiedMessagingSw";
 import { createInteropEnvelope } from "com/core/UniformInterop";
-import { isUserScopePath } from "fest/core";
+import { isUserScopePath } from "@fest-lib/core";
 import { getCrxNetworkCoordinator } from "./network/Coordinator";
 import {
     copyAndShareByCwsp,
@@ -1456,7 +1456,7 @@ import {
     viewBroadcastChannelName
 } from 'com/config/Names';
 import { summarizeForLog } from 'com/core/LogSanitizer';
-import * as FestCore from "fest/core";
+import * as FestCore from "@fest-lib/core";
 
 // ============================================================================
 // SERVICE WORKER CONTENT ASSOCIATION SYSTEM

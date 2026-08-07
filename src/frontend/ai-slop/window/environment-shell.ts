@@ -12,10 +12,10 @@
  * SpeedDial + viewer SCSS cannot pierce that shadow — labels/toolbars look “unstyled”.
  * Match `environment-shell/demo/boot.ts`: `<env-shell-container>` + light-DOM slotted layers.
  */
-import { observe, ref } from "fest/object";
-import { preloadStyle, loadInlineStyle } from "fest/dom";
-import { ensureStyleSheet } from "fest/icon";
-import { initializeAppCanvasLayer, restoreWallpaperThemeCache } from "fest/image";
+import { observe, ref } from "@fest-lib/object";
+import { preloadStyle, loadInlineStyle } from "@fest-lib/dom";
+import { ensureStyleSheet } from "@fest-lib/icon";
+import { initializeAppCanvasLayer, restoreWallpaperThemeCache } from "@fest-lib/image";
 import type { ShellId, ShellLayoutConfig, ViewId, ViewOptions } from "shells/types";
 import { ShellBase } from "boot/shells";
 import { SHELL_SLOT } from "boot/shell-slots";

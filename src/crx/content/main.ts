@@ -13,7 +13,7 @@
 
 import { showToast, initOverlay } from "boot/ts/overlay";
 import { copyAsHTML, copyAsMathML, copyAsMarkdown, copyAsTeX } from "core/document/Conversion";
-import { isUserScopePath, toUserRelativePath } from "fest/core";
+import { isUserScopePath, toUserRelativePath } from "@fest-lib/core";
 
 // Content-script modules
 import "./copy";           // COPY_HACK handler
