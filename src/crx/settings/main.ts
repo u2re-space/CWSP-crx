@@ -75,7 +75,7 @@ registerSettingsContribution({
                 "Context menu Copy & Share / Paste by CWSP use the CWSP hub (ecosystem token). Control pairing on the CWSP tab is only for Neutralino Settings sync."
             ),
             "Chrome",
-            settingsCheckboxField("Enable New Tab Page (offline Basic)", "core.ntpEnabled"),
+            settingsCheckboxField("Enable New Tab Page (CWSP-shell speed dial)", "core.ntpEnabled"),
             settingsCheckboxField(
                 "Capture selection via context menu",
                 "views.crx.contextMenuCapture"

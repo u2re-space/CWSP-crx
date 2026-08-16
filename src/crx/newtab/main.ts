@@ -1,5 +1,15 @@
-import { crxFrontend } from "shells/boot";
+/*
+ * Filename: main.ts
+ * FullPath: apps/CWSP-crx/src/crx/newtab/main.ts
+ * Change date and time: 10.05.00_16.08.2026
+ * Reason for changes: NTP loads CWSP-shell environment + home speed-dial
+ * (not immersive viewer). Respects core.ntpEnabled gate.
+ */
+import { bootEnvironment } from "shells/boot";
 import { loadSettings } from "com/config/Settings";
+import { initializeLayers } from "shared/routing/layer-manager";
+import { getCrxNetworkCoordinator } from "crx/network/Coordinator";
+import { ensureAppLayers } from "shared/routing/app-layers";
 
 const mount = document.getElementById("app") as HTMLElement | null;
 
@@ -14,7 +24,7 @@ const renderDisabled = () => {
     h.textContent = "New Tab Page is disabled";
     h.style.cssText = "font-size:18px;font-weight:700;";
     const p = document.createElement("div");
-    p.textContent = "Enable it in Extension Settings → \"Enable New Tab Page (offline Basic)\".";
+    p.textContent = "Enable it in Extension Settings → \"Enable New Tab Page (CWSP-shell speed dial)\".";
     p.style.cssText = "opacity:0.9;line-height:1.4;";
     const btn = document.createElement("button");
     btn.textContent = "Open Extension Settings";
@@ -34,13 +44,21 @@ const renderDisabled = () => {
 };
 
 void loadSettings()
-    .then((s) => {
+    .then(async (s) => {
         if (!mount) return;
         if (!s?.core?.ntpEnabled) {
             renderDisabled();
             return;
         }
-        // Chromeless immersive shell — no toolbar, just the viewer
-        crxFrontend(mount, { shell: "immersive", initialView: "viewer" });
+
+        // Same CWSP-shell home surface as PWA/desktop: environment + speed dial.
+        initializeLayers();
+        void getCrxNetworkCoordinator().startFromStoredSettings().catch(() => undefined);
+
+        const layers = ensureAppLayers(mount, {
+            enableOrientLayer: true,
+            enableCanvasLayer: true,
+        });
+        await bootEnvironment(layers.shellLayer, "home");
     })
     .catch(() => renderDisabled());

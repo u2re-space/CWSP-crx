@@ -153,6 +153,19 @@ async function patchCrxManifest(distPath) {
         if (rel.startsWith(".vite/")) continue;
         resources.push(rel);
     }
+    // WHY: fest/* is loaded by content pages via chrome-extension://…/fest/dom.js;
+    // stale builds sometimes omit those paths from the enumerated list.
+    for (const glob of [
+        "fest/*",
+        "fest/**/*",
+        "chunks/*",
+        "chunks/**/*",
+        "app/*",
+        "vendor/*",
+        "newtab/*",
+    ]) {
+        if (!resources.includes(glob)) resources.push(glob);
+    }
     resources.sort();
 
     const war = Array.isArray(manifest.web_accessible_resources)
@@ -166,9 +179,14 @@ async function patchCrxManifest(distPath) {
     };
 
     // Replace prior auto-generated full-runtime entry if present.
+    // Also drop the stale source WAR that listed `@fest-lib/*` (never emitted).
     const nextWar = war.filter((entry) => {
         const r = entry?.resources;
-        return !(Array.isArray(r) && r.includes("app/content.js"));
+        if (!Array.isArray(r)) return true;
+        if (r.includes("app/content.js")) return false;
+        // Keep only the enumerated post-build entry (rebuilt below).
+        if (r.includes("@fest-lib/*") && !r.includes("fest/*")) return false;
+        return true;
     });
     nextWar.push(fullRuntimeEntry);
     manifest.web_accessible_resources = nextWar;

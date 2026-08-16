@@ -211,12 +211,15 @@ const crxDedupeComServicePlugin = () => ({
     },
 });
 
-const createCrxConfig = (mode) => {
+const createCrxConfig = async (mode) => {
     // Diagnostic CRX mode: no minify + sourcemaps. Treeshake is always off for CRX
     // (Rolldown SW chunk panic — see CRX_DISABLE_TREESHAKE).
     const env = loadEnv(mode || "crx", __dirname, "");
     const debugCrxBundle = env?.VITE_CRX_DEBUG_BUNDLE === "1";
     const crxTreeshake = CRX_DISABLE_TREESHAKE ? false : undefined;
+
+    const { viteStaticCopy } = await import("vite-plugin-static-copy");
+    const crxOutDir = resolve(__dirname, "./dist");
 
     const crxPlugin = crx({
         manifest,
@@ -225,7 +228,8 @@ const createCrxConfig = (mode) => {
         // styles (cssCodeSplit: false) and breaking third-party layouts.
         contentScripts: { injectCss: false },
     });
-    // CRX build is not a PWA build. Disable PWA-related plugins (PWA + static-copy).
+    // CRX build is not a PWA build. Drop PWA plugin + its static-copy (icons/manifest),
+    // but still copy default wallpaper — NTP/environment shell expects `/assets/wallpaper.jpg`.
     const isPwaPlugin = (plugin) => {
         const name = plugin?.name;
         return typeof name === "string" && (name === "vite-plugin-pwa" || name.startsWith("vite-plugin-pwa:"));
@@ -251,7 +255,7 @@ const { manualChunks: _ignoredCrxManualChunks, ...crxOutputBase } = baseOutput;
 // INVARIANT: CRX unpacked output is package-root `dist/` (absolute via __dirname).
     // Do not use `dist-crx` — Chrome "Load unpacked" should point at apps/CWSP-crx/dist.
     const crxOutput = objectAssign({}, crxOutputBase, {
-        dir: resolve(__dirname, "./dist"),
+        dir: crxOutDir,
         entryFileNames: "app/[name].js",
         chunkFileNames: crxChunkFileNames,
         assetFileNames: distAssetFileNames(NAME),
@@ -288,13 +292,28 @@ const { manualChunks: _ignoredCrxManualChunks, ...crxOutputBase } = baseOutput;
                 ...prevAliasList,
             ],
         },
-        plugins: [crxCacheReactivityShimPlugin(festObjectCacheShim), crxDedupeComServicePlugin(), ...basePlugins, crxPlugin],
+        plugins: [
+            crxCacheReactivityShimPlugin(festObjectCacheShim),
+            crxDedupeComServicePlugin(),
+            ...basePlugins,
+            // WHY: CRX Vite `root` is `src/crx`; relative `dest: "assets"` lands in package `dist/assets`
+            // (absolute dest was nesting as `dist/assets/assets/`).
+            viteStaticCopy({
+                targets: [
+                    {
+                        src: resolve(__dirname, "./assets/wallpaper.jpg"),
+                        dest: "assets",
+                    },
+                ],
+            }),
+            crxPlugin,
+        ],
         build: {
             ...(baseConfig?.build ?? {}),
             // Per-entry CSS so content scripts do not share one global stylesheet with popup/viewer.
             cssCodeSplit: true,
             cssMinify: "esbuild",
-            outDir: resolve(__dirname, "./dist"),
+            outDir: crxOutDir,
             // WHY: `root` is `src/crx`; keep clearing package-root `dist`, not a nested path.
             emptyOutDir: true,
             lib: undefined,
