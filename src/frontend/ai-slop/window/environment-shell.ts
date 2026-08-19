@@ -15,7 +15,8 @@
 import { observe, ref } from "@fest-lib/object";
 import { preloadStyle, loadInlineStyle } from "@fest-lib/dom";
 import { ensureStyleSheet } from "@fest-lib/icon";
-import { initializeAppCanvasLayer, restoreWallpaperThemeCache } from "@fest-lib/image";
+import { initializeAppCanvasLayer, refreshAppWallpaperPaint, restoreWallpaperThemeCache } from "@fest-lib/image";
+import { closeHighestPriority, hasActiveCloseable } from "@fest-lib/lure";
 import type { ShellId, ShellLayoutConfig, ViewId, ViewOptions } from "shells/types";
 import { ShellBase } from "boot/shells";
 import { SHELL_SLOT } from "boot/shell-slots";
@@ -31,6 +32,10 @@ import {
     type WorkspaceViewLoaderMap
 } from "shells/environment/index";
 import { mountViewModule } from "shells/environment/window/views/view-mount";
+import {
+    focusLauncherSpeedDial,
+    registerLauncherHomeLifecycleHooks
+} from "com/routing/native/launcher-home-lifecycle";
 
 // @ts-ignore — Material-ish tokens used by env chrome / home
 import wfDemoCss from "../../../../../../modules/shells/window-frame/public/demo/wf-demo.css?inline";
@@ -183,6 +188,7 @@ export class EnvironmentShell extends ShellBase {
     private homeMountEl: HTMLElement | null = null;
     private windowLayer: ReturnType<typeof createWorkspaceWindowLayer> | null = null;
     private chromeDispose: (() => void) | null = null;
+    private wallpaperLifecycleDispose: (() => void) | null = null;
     private homeUnmount: (() => void) | null = null;
     private shellActivityDispose: (() => void) | null = null;
     private focusedTaskId = ref<string>("home");
@@ -310,6 +316,20 @@ export class EnvironmentShell extends ShellBase {
                 seedEnvironmentWallpaperIfUnset("/assets/wallpaper.jpg");
             }
             initializeAppCanvasLayer(wallpaper);
+            const repaintWallpaperIfVisible = (): void => {
+                if (document.visibilityState !== "visible") return;
+                try {
+                    refreshAppWallpaperPaint();
+                } catch {
+                    /* optional */
+                }
+            };
+            window.addEventListener("pageshow", repaintWallpaperIfVisible);
+            document.addEventListener("visibilitychange", repaintWallpaperIfVisible);
+            this.wallpaperLifecycleDispose = () => {
+                window.removeEventListener("pageshow", repaintWallpaperIfVisible);
+                document.removeEventListener("visibilitychange", repaintWallpaperIfVisible);
+            };
         } catch (err) {
             console.warn("[EnvironmentShell] wallpaper init failed", err);
         }
@@ -372,18 +392,22 @@ export class EnvironmentShell extends ShellBase {
             document.documentElement.dataset.cwspShellRole === "launcher" ||
             (globalThis as { __RS_SHELL_ROLE__?: string }).__RS_SHELL_ROLE__ === "launcher"
         ) {
-            void import("com/routing/native/launcher-home-lifecycle")
-                .then((m) => {
-                    m.registerLauncherHomeLifecycleHooks({
-                        navigateHome: () => this.focusHome(),
-                        closeAppMenu: () => chrome.taskbar?.appMenu?.close(),
-                        isAppMenuOpen: () => Boolean(chrome.taskbar?.appMenu?.isOpen()),
-                        focusSpeedDial: () => m.focusLauncherSpeedDial()
-                    });
-                })
-                .catch(() => {
-                    /* optional on non-Capacitor hosts */
-                });
+            registerLauncherHomeLifecycleHooks({
+                navigateHome: () => this.focusHome(),
+                closeAppMenu: () => chrome.taskbar?.appMenu?.close(),
+                isAppMenuOpen: () => Boolean(chrome.taskbar?.appMenu?.isOpen()),
+                focusSpeedDial: () => focusLauncherSpeedDial(),
+                tryConsumeBack: () => {
+                    if (hasActiveCloseable()) {
+                        return closeHighestPriority() != null;
+                    }
+                    if (chrome.taskbar?.isSwitcherOpen?.()) {
+                        chrome.taskbar.closeSwitcher?.();
+                        return true;
+                    }
+                    return false;
+                }
+            });
         }
 
         this.chromeDispose = () => {
@@ -470,6 +494,37 @@ export class EnvironmentShell extends ShellBase {
         this.mountHomeDesktop(pending.homeMount, (pending.shellContext as ViewOptions).shellContext);
     }
 
+    private syncLauncherHomeAddressBar(): void {
+        if (typeof location === "undefined" || typeof history === "undefined") return;
+        try {
+            const sp = new URLSearchParams(location.search || "");
+            sp.set("shell", this.id);
+            sp.delete("native");
+            sp.delete("view");
+            const search = sp.toString() ? `?${sp.toString()}` : "";
+            let pathname = location.pathname || "/";
+            const seg = pathname.replace(/^\/+|\/+$/g, "").split("/")[0]?.toLowerCase() || "";
+            const viewPaths = new Set([
+                "settings",
+                "explorer",
+                "viewer",
+                "markdown",
+                "network",
+                "history",
+                "workcenter",
+                "editor"
+            ]);
+            if (viewPaths.has(seg)) pathname = "/";
+            const next = `${pathname}${search}`;
+            const cur = `${location.pathname}${location.search}`;
+            if (cur !== next) {
+                history.replaceState({ viewId: "home", params: Object.fromEntries(sp) }, "", next);
+            }
+        } catch {
+            /* ignore */
+        }
+    }
+
     private focusHome(): void {
         this.ensureHomeMounted();
         // WHY: Home collapses open apps (minimize) — do not dispose; restore via long-press switcher.
@@ -484,6 +539,12 @@ export class EnvironmentShell extends ShellBase {
         this.setFocusedTaskId?.("home");
         this.focusedTaskId.value = "home";
         this.currentView.value = "home" as ViewId;
+        this.syncLauncherHomeAddressBar();
+        try {
+            refreshAppWallpaperPaint();
+        } catch {
+            /* optional */
+        }
     }
 
     private openInWindow(viewId: string, opts?: ViewOptions): void {
@@ -567,18 +628,6 @@ export class EnvironmentShell extends ShellBase {
                 return;
             }
             this.focusHome();
-            try {
-                const searchParams = new URLSearchParams(params || {});
-                searchParams.set("shell", this.id);
-                searchParams.delete("native");
-                const search = searchParams.toString() ? `?${searchParams.toString()}` : "";
-                const next = `${location.pathname}${search}`;
-                if (`${location.pathname}${location.search}` !== next) {
-                    history.replaceState({ viewId: "home", params }, "", next);
-                }
-            } catch {
-                /* ignore */
-            }
             return;
         }
         /*
@@ -629,6 +678,19 @@ export class EnvironmentShell extends ShellBase {
             /* ignore */
         }
         this.shellActivityDispose = null;
+        try {
+            this.wallpaperLifecycleDispose?.();
+        } catch {
+            /* ignore */
+        }
+        this.wallpaperLifecycleDispose = null;
+
+        if (
+            document.documentElement.dataset.cwspShellRole === "launcher" ||
+            (globalThis as { __RS_SHELL_ROLE__?: string }).__RS_SHELL_ROLE__ === "launcher"
+        ) {
+            registerLauncherHomeLifecycleHooks(null);
+        }
 
         if (this.mounted && this.container && this.rootElement) {
             try {
