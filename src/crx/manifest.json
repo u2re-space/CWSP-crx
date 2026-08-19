@@ -35,7 +35,8 @@
         "notifications",
         "commands",
         "desktopCapture",
-        "bookmarks"
+        "bookmarks",
+        "favicon"
     ],
     "content_security_policy": {
         "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https: ws: wss: http://127.0.0.1:* http://localhost:* https://cdn.jsdelivr.net https://unpkg.com data: blob:; frame-src https://u2re.space https://*.u2re.space *;",
