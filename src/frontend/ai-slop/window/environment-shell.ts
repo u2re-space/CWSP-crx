@@ -40,6 +40,16 @@ import envShellStyles from "shells/environment/scss/main.scss?inline";
 
 defineEnvironmentShellContainer();
 
+function isNativeCapacitorShell(): boolean {
+    try {
+        if (document.documentElement.dataset.cwspNativeShell === "capacitor") return true;
+        const c = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+        return typeof c?.isNativePlatform === "function" && Boolean(c.isNativePlatform());
+    } catch {
+        return false;
+    }
+}
+
 /** `?native=1` or path `/explorer` with native query → mono native start set. */
 function readStartNativeViewIds(): string[] {
     try {
@@ -287,8 +297,18 @@ export class EnvironmentShell extends ShellBase {
         this.mounted = true;
         this.shellActivityDispose = initBootShellWindowActivity(this.id);
 
+        const nativeCapacitor = isNativeCapacitorShell();
+        if (nativeCapacitor) {
+            host.dataset.capacitorNative = "";
+            document.documentElement.dataset.cwspNativeShell =
+                document.documentElement.dataset.cwspNativeShell || "capacitor";
+        }
+
         try {
             restoreWallpaperThemeCache();
+            if (nativeCapacitor) {
+                seedEnvironmentWallpaperIfUnset("/assets/wallpaper.jpg");
+            }
             initializeAppCanvasLayer(wallpaper);
         } catch (err) {
             console.warn("[EnvironmentShell] wallpaper init failed", err);
@@ -347,6 +367,25 @@ export class EnvironmentShell extends ShellBase {
         });
         this.setFocusedTaskId = chrome.taskbar?.setFocusedTaskId ?? null;
         this.syncWindowTasks = chrome.taskbar?.syncWindowTasks ?? null;
+
+        if (
+            document.documentElement.dataset.cwspShellRole === "launcher" ||
+            (globalThis as { __RS_SHELL_ROLE__?: string }).__RS_SHELL_ROLE__ === "launcher"
+        ) {
+            void import("com/routing/native/launcher-home-lifecycle")
+                .then((m) => {
+                    m.registerLauncherHomeLifecycleHooks({
+                        navigateHome: () => this.focusHome(),
+                        closeAppMenu: () => chrome.taskbar?.appMenu?.close(),
+                        isAppMenuOpen: () => Boolean(chrome.taskbar?.appMenu?.isOpen()),
+                        focusSpeedDial: () => m.focusLauncherSpeedDial()
+                    });
+                })
+                .catch(() => {
+                    /* optional on non-Capacitor hosts */
+                });
+        }
+
         this.chromeDispose = () => {
             chrome.disposeDevice();
             chrome.taskbar?.dispose?.();
