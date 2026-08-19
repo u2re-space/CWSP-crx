@@ -10,6 +10,20 @@ import { loadSettings } from "com/config/Settings";
 import { initializeLayers } from "shared/routing/layer-manager";
 import { getCrxNetworkCoordinator } from "crx/network/Coordinator";
 import { ensureAppLayers } from "shared/routing/app-layers";
+import { registerFsBackend } from "fl-ui/explorer/path-router";
+import { createChromeBookmarksBackend } from "fl-ui/explorer/backends/chrome-bookmarks-backend";
+
+// CRX-only: mount the live Chrome Bookmarks API under `/bookmarks/` so the
+// Explorer Operative and SpeedDial mirror mode can browse/edit bookmarks.
+// INVARIANT: register only when `chrome.bookmarks` exists; non-CRX hosts
+// never get the `/bookmarks/` root.
+const chromeAny: any = (globalThis as any)?.chrome;
+if (chromeAny?.bookmarks) {
+    const bookmarksBackend = createChromeBookmarksBackend(chromeAny.bookmarks);
+    if (bookmarksBackend) {
+        registerFsBackend(bookmarksBackend);
+    }
+}
 
 const mount = document.getElementById("app") as HTMLElement | null;
 

@@ -94,7 +94,9 @@ const manifest = await readFile(resolve(__dirname, "./src/crx/manifest.json"), {
 const crxRoot = resolve(__dirname, "./src/crx");
 const ALL_VIEW_IDS = ["viewer", "editor", "workcenter", "explorer", "settings", "history", "home", "print", "airpad", "network"];
 const DEFAULT_VIEWS_BY_MODE = {
-    crx: ["viewer", "editor", "settings", "history", "home", "print"],
+    // WHY: NTP Speed Dial opens Explorer (`/bookmarks/`, OPFS `/user/`). Without
+    // `explorer` here, `__RS_VIEW_EXPLORER__=false` → no window loader → placeholder.
+    crx: ["viewer", "editor", "explorer", "settings", "history", "home", "print"],
     // VDS md.u2re.space / /markdown/ — markdown workspace (viewer + workcenter tools).
     markdown: ["viewer", "workcenter", "editor", "settings", "history", "home", "print"],
     "cw-markdown": ["viewer", "workcenter", "editor", "settings", "history", "home", "print"],
