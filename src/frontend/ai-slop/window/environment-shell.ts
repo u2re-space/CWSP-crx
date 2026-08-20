@@ -394,6 +394,7 @@ export class EnvironmentShell extends ShellBase {
         ) {
             registerLauncherHomeLifecycleHooks({
                 navigateHome: () => this.focusHome(),
+                openAppMenu: () => chrome.taskbar?.openAppMenu?.(),
                 closeAppMenu: () => chrome.taskbar?.appMenu?.close(),
                 isAppMenuOpen: () => Boolean(chrome.taskbar?.appMenu?.isOpen()),
                 focusSpeedDial: () => focusLauncherSpeedDial(),
@@ -427,6 +428,7 @@ export class EnvironmentShell extends ShellBase {
                 settings: "Settings",
                 explorer: "Explorer",
                 viewer: "Markdown",
+                browser: "Browser",
                 history: "History",
                 workcenter: "Work Center",
                 editor: "Editor"
@@ -551,7 +553,13 @@ export class EnvironmentShell extends ShellBase {
         const id = String(viewId || "").trim().toLowerCase();
         if (!id || id === "airpad") return;
         const withNative = mergeNativeOpt(id, opts);
-        if (!this.windowLayer?.focusWindow(id)) {
+        /*
+         * WHY: browser windows are keyed per URL (`browser:<hash>`). Always go through
+         * openView so params.url is applied — focusWindow("browser") would miss them.
+         */
+        if (id === "browser" || id === "web" || id === "iframe" || id === "webview") {
+            void this.windowLayer?.shellContext.openView?.(id, withNative);
+        } else if (!this.windowLayer?.focusWindow(id)) {
             void this.windowLayer?.shellContext.openView?.(id, withNative);
         }
         /* WHY: always re-assert native after open/focus — existing frames used to skip it. */
