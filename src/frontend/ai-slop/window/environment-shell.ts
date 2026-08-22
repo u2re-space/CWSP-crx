@@ -395,6 +395,7 @@ export class EnvironmentShell extends ShellBase {
             registerLauncherHomeLifecycleHooks({
                 navigateHome: () => this.focusHome(),
                 openAppMenu: () => chrome.taskbar?.openAppMenu?.(),
+                openAppMenuPage: () => chrome.taskbar?.openAppMenuPage?.() ?? chrome.taskbar?.appMenu?.openPage?.(),
                 closeAppMenu: () => chrome.taskbar?.appMenu?.close(),
                 isAppMenuOpen: () => Boolean(chrome.taskbar?.appMenu?.isOpen()),
                 focusSpeedDial: () => focusLauncherSpeedDial(),
