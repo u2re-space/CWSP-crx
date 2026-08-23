@@ -33,7 +33,6 @@ import {
 } from "shells/environment/index";
 import { mountViewModule } from "shells/environment/window/views/view-mount";
 import {
-    focusLauncherSpeedDial,
     registerLauncherHomeLifecycleHooks
 } from "com/routing/native/launcher-home-lifecycle";
 
@@ -398,7 +397,7 @@ export class EnvironmentShell extends ShellBase {
                 openAppMenuPage: () => chrome.taskbar?.openAppMenuPage?.() ?? chrome.taskbar?.appMenu?.openPage?.(),
                 closeAppMenu: () => chrome.taskbar?.appMenu?.close(),
                 isAppMenuOpen: () => Boolean(chrome.taskbar?.appMenu?.isOpen()),
-                focusSpeedDial: () => focusLauncherSpeedDial(),
+                /* WHY: must not call focusLauncherSpeedDial() — that used to call this hook. */
                 tryConsumeBack: () => {
                     if (hasActiveCloseable()) {
                         return closeHighestPriority() != null;
