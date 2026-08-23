@@ -160,6 +160,10 @@
             min-block-size: 0;
             overflow: auto;
             pointer-events: auto;
+            background: none;
+            background-color: transparent;
+            border: none 0px transparent;
+            outline: none 0px transparent;
         }
 
         :where(#overlays) {
@@ -227,7 +231,10 @@
                 inset: 0;
                 inset-inline-end: auto;
                 inset-block-end: auto;
-                background-color: var(--view-bg, var(--color-background, var(--color-surface, #f1f5f9)));
+                background: none;
+                background-color: transparent;
+                border: none 0px transparent;
+                outline: none 0px transparent;
                 color: var(--view-fg, var(--color-on-background, var(--color-on-surface, #0f172a)));
                 font-family: var(--font-sans, var(--font-family, system-ui, sans-serif));
             }
