@@ -687,6 +687,7 @@ export async function registerCrxNeutralinoSettingsSync(): Promise<boolean> {
     try {
         document.documentElement.dataset.cwspBridge = auth ? "live" : "offline";
         document.documentElement.dataset.cwspSurface = "crx";
+        document.documentElement.dataset.cwspSku = "crx";
         if (auth) {
             document.documentElement.dataset.cwspControlOrigin = auth.origin;
             document.documentElement.dataset.cwspControlVia = auth.via;
