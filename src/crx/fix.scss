@@ -101,16 +101,25 @@
                 color: initial;
                 padding: 0 !important;
                 margin: 0 !important;
-                overflow-x: hidden !important;
-                overflow-y: auto !important;
-                container-type: inline-size !important;
+                overflow: visible !important;
+                contain: none !important;
+                container-type: normal !important;
+                content-visibility: visible !important;
+                position: static !important;
+                inset: auto !important;
+                display: block !important;
+                block-size: auto !important;
+                max-block-size: none !important;
+                min-block-size: 0 !important;
+                height: auto !important;
                 border: 0 none transparent !important;
                 outline: 0 none transparent !important;
             }
 
             :where(body) {
-                min-block-size: 100dvb !important;
-                block-size: max-content !important;
+                min-block-size: 0 !important;
+                block-size: auto !important;
+                max-block-size: none !important;
                 min-inline-size: stretch !important;
                 inline-size: 100dvi !important;
                 max-inline-size: 100dvi !important;
@@ -147,6 +156,16 @@
             inline-size: 100%;
             overflow: hidden;
             background: transparent;
+
+            @media print {
+                display: block !important;
+                overflow: visible !important;
+                contain: none !important;
+                min-block-size: 0 !important;
+                block-size: auto !important;
+                max-block-size: none !important;
+                height: auto !important;
+            }
         }
 
         :where(body > #app) {
@@ -164,6 +183,16 @@
             background-color: transparent;
             border: none 0px transparent;
             outline: none 0px transparent;
+
+            @media print {
+                display: contents !important;
+                overflow: visible !important;
+                contain: none !important;
+                block-size: auto !important;
+                max-block-size: none !important;
+                min-block-size: 0 !important;
+                height: auto !important;
+            }
         }
 
         :where(#overlays) {
@@ -269,6 +298,11 @@
         }
 
         @media print {
+            #overlays,
+            #filter {
+                display: none !important;
+            }
+
             #app,
             .app-shell,
             .cw-view-viewer-shell,
@@ -290,10 +324,12 @@
                 scrollbar-width: none !important;
                 scrollbar-color: transparent transparent !important;
                 -webkit-overflow-scrolling: touch !important;
-                page-break-after: avoid !important;
-                page-break-before: avoid !important;
-                break-after: avoid !important;
-                break-before: avoid !important;
+                break-before: auto !important;
+                break-after: auto !important;
+                break-inside: auto !important;
+                page-break-before: auto !important;
+                page-break-after: auto !important;
+                page-break-inside: auto !important;
                 contain: none !important;
                 container-type: normal !important;
                 content-visibility: visible !important;
@@ -303,7 +339,16 @@
                 user-select: auto !important;
                 touch-action: auto !important;
                 cursor: auto !important;
-                scrollbar-width: none !important;
+                block-size: auto !important;
+                max-block-size: none !important;
+                min-block-size: 0 !important;
+                height: auto !important;
+            }
+
+            .markdown-body,
+            .markdown-viewer-content,
+            .result-content {
+                display: block !important;
             }
         }
     }
@@ -387,11 +432,12 @@
             :where(body, html, :root) > *:not([hidden], [aria-hidden="true"], [data-hidden]):not(markdown-viewer, #markdown-body, .view-markdown),
             :where(body, html, :root) :where(#app, #raw-md),
             :where(body, html, :root) :where(div, span, button, input, header, main, footer):not([hidden], [aria-hidden="true"], [data-hidden]):not(markdown-viewer, #markdown-body, .view-markdown) {
-                display: contents !important;
-                page-break-after: avoid !important;
-                page-break-before: avoid !important;
-                break-after: avoid !important;
-                break-before: avoid !important;
+                break-before: auto !important;
+                break-after: auto !important;
+                break-inside: auto !important;
+                page-break-before: auto !important;
+                page-break-after: auto !important;
+                page-break-inside: auto !important;
             }
 
             .cw-view-viewer-shell,
@@ -401,10 +447,12 @@
             .view-viewer__content,
             [data-viewer-content] {
                 display: contents !important;
-                page-break-after: avoid !important;
-                page-break-before: avoid !important;
-                break-after: avoid !important;
-                break-before: avoid !important;
+                break-before: auto !important;
+                break-after: auto !important;
+                break-inside: auto !important;
+                page-break-before: auto !important;
+                page-break-after: auto !important;
+                page-break-inside: auto !important;
             }
 
             .loading-spinner,
