@@ -77,6 +77,11 @@ const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\
  */
 export const rolldownCodeSplittingGroups = [
     {
+        name: "vite-preload",
+        test: /vite\/modulepreload-polyfill|vite\/preload-helper/,
+        priority: 200,
+    },
+    {
         name: "fest-polyfill",
         test: /\/shared\/fest\/polyfill\//,
         priority: 100,
@@ -118,6 +123,12 @@ function appSliceChunk(ns, rel) {
  */
 export function manualChunks(id) {
     const p = norm(id);
+
+    // WHY: Vite 8 hoisted `__vitePreload` (export `Un`) into unhashed `com/app.js`.
+    // A stale barrel then makes `__vitePreload(...).catch` throw (GLitElementImpl, etc.).
+    if (p.includes("vite/modulepreload-polyfill") || p.includes("vite/preload-helper") || p.includes("\0vite/")) {
+        return "vite-preload";
+    }
 
     // `fest/object` — must stay out of `com-app` (lure/fl-ui/DOM). Realpath is
     // `.../modules/projects/object.ts/src/...`; if this is assigned to `com-app`, `com-service`
@@ -224,6 +235,7 @@ export function manualChunks(id) {
 export function chunkFileNames(chunkInfo) {
     const n = chunkInfo.name || "chunk";
 
+    if (n === "vite-preload" || n.startsWith("vite-")) return `chunks/${n}-[hash].js`;
     if (n.startsWith("vendor-")) return `vendor/${n.slice("vendor-".length)}.js`;
     if (n.startsWith("fest-")) return `fest/${n.slice(5)}.js`;
     if (n.startsWith("view-")) return `views/${n.slice(5)}.js`;
