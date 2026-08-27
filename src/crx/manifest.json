@@ -66,6 +66,8 @@
         {
             "resources": [
                 "markdown/viewer.html",
+                "explorer/index.html",
+                "workcenter/index.html",
                 "offscreen/*",
                 "app/*",
                 "assets/*",

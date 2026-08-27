@@ -1,4 +1,5 @@
-import { crxFrontend } from "shells/boot";
+import { bootMinimal } from "boot/BootLoader";
+import { applyCwspSku, stashSkuHandoff } from "com/config/ecosystem-skus";
 import type { ViewId } from "shells/types";
 
 const rawPre = document.getElementById("raw-md") as HTMLPreElement | null;
@@ -237,19 +238,28 @@ const init = async () => {
         markdown = "# No content\n\nOpen a markdown file or navigate to a `.md` URL.";
     }
 
-    await crxFrontend(appDiv, {
-        shell: "immersive",
-        initialView: resolveTargetView(params),
-        viewParams: sanitizedParams,
-        viewPayload: {
-            text: markdown,
+    applyCwspSku("document");
+    const root = document.documentElement;
+    root.dataset.cwspSku = "document";
+    root.dataset.cwspApp = "document";
+    root.dataset.cwspSurface = "cw-document-crx";
+    root.dataset.cwspEnabledViews = "viewer,editor,print,settings,history";
+    root.dataset.cwspDefaultView = "viewer";
+    root.dataset.cwspNativeShell = "crx";
+
+    const target = resolveTargetView(params);
+    const dest = target === "editor" ? "editor" : target === "print" ? "print" : "viewer";
+    if (markdown.trim()) {
+        stashSkuHandoff({
+            dest,
             content: markdown,
             filename,
-            source: payloadSource,
-            args: sanitizedParams,
-        },
-    });
+            src: payloadSource
+        });
+    }
 
+    const viewId = (dest === "editor" || dest === "print" ? dest : "viewer") as ViewId;
+    await bootMinimal(appDiv, viewId);
     hideRawLayer();
 };
 

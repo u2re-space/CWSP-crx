@@ -552,6 +552,19 @@ const initMarkdownViewer = () => {
     });
 };
 
+const initWorkCenter = () => {
+    const btn = document.getElementById("workcenter-open") as HTMLButtonElement | null;
+    btn?.addEventListener("click", () => {
+        void (async () => {
+            const text = (await getSelectionText()).trim();
+            const page = chrome.runtime.getURL("workcenter/index.html");
+            const url = text ? `${page}?text=${encodeURIComponent(text.slice(0, 8000))}` : page;
+            chrome.tabs.create({ url });
+            globalThis?.close?.();
+        })();
+    });
+};
+
 const initAppearance = () => {
     const theme = document.getElementById("crx-theme") as HTMLSelectElement;
     const font = document.getElementById("crx-font") as HTMLSelectElement;
@@ -787,4 +800,5 @@ initAppearance();
 initSnipActions();
 initCopyButtons();
 initMarkdownViewer();
+initWorkCenter();
 initSettingsUI();

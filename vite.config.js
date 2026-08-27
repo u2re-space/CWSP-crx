@@ -96,7 +96,7 @@ const ALL_VIEW_IDS = ["viewer", "editor", "workcenter", "explorer", "settings", 
 const DEFAULT_VIEWS_BY_MODE = {
     // WHY: NTP Speed Dial opens Explorer (`/bookmarks/`, OPFS `/user/`). Without
     // `explorer` here, `__RS_VIEW_EXPLORER__=false` → no window loader → placeholder.
-    crx: ["viewer", "editor", "explorer", "settings", "history", "home", "print"],
+    crx: ["viewer", "editor", "workcenter", "explorer", "settings", "history", "home", "print"],
     // VDS md.u2re.space / /markdown/ — markdown workspace (viewer + workcenter tools).
     markdown: ["viewer", "workcenter", "editor", "settings", "history", "home", "print"],
     "cw-markdown": ["viewer", "workcenter", "editor", "settings", "history", "home", "print"],
@@ -169,6 +169,8 @@ const crxInputs = {
     newtab: resolve(crxRoot, "./newtab/index.html"),
     settings: resolve(crxRoot, "./settings/index.html"),
     "markdown-viewer": resolve(crxRoot, "./markdown/viewer.html"),
+    explorer: resolve(crxRoot, "./explorer/index.html"),
+    workcenter: resolve(crxRoot, "./workcenter/index.html"),
     "offscreen-copy": resolve(crxRoot, "./offscreen/copy.html"),
     "offscreen-capture": resolve(crxRoot, "./offscreen/capture.html"),
     content: resolve(crxRoot, "./content/main.ts"),
