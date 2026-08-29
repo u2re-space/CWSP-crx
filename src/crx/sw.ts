@@ -20,6 +20,10 @@ import { COPY_HACK, enableCapture } from "./service/api";
 import type { GPTResponses } from "com/service/model/GPT-Responses";
 import type { CustomInstruction } from "com/service/instructions/CustomInstructions";
 import { ensureCrxCwspSettingsSeeded, loadSettings } from "com/config/Settings";
+import {
+    rememberOpenPolicyFromSettings,
+    resolveOpenPolicy
+} from "com/config/open-policy";
 
 import * as swAi from "./sw-ai-modules";
 import type { ActionContext, ActionInput } from "com/service/misc/ActionHistory";
@@ -325,7 +329,7 @@ interface CrxResult {
 }
 
 interface CrxDestination {
-    type: "clipboard" | "content-script" | "popup" | "workcenter" | "notification";
+    type: "clipboard" | "content-script" | "popup" | "workcenter" | "viewer" | "notification";
     tabId?: number;
     frameId?: number;
     options?: Record<string, any>;
@@ -410,13 +414,15 @@ class CrxResultPipeline {
                 break;
 
             case "workcenter":
+            case "viewer":
                 try {
+                    const destView = dest.type === "viewer" ? "viewer" : "workcenter";
                     await unifiedMessaging.sendMessage({
-                        id: result.id, type: "content-share", source: "crx-snip", destination: "workcenter",
+                        id: result.id, type: destView === "viewer" ? "content-view" : "content-share", source: "crx-snip", destination: destView,
                         contentType: result.type, data: { text: textContent, processed: true, source: result.source, metadata: result.metadata },
                         metadata: { title: `CRX-Snip ${result.type} Result`, timestamp: result.timestamp, source: result.source },
                     });
-                } catch { throw new Error("WorkCenter delivery failed"); }
+                } catch { throw new Error(`${dest.type} delivery failed`); }
                 break;
 
             case "notification":
@@ -463,10 +469,15 @@ const processCrxSnipWithPipeline = async (
                 content: typeof result.result === "string" ? result.result : String(result.result),
                 source: "crx-snip", timestamp: Date.now(),
             };
+            const settings = await loadSettings().catch(() => null);
+            rememberOpenPolicyFromSettings(settings);
+            const snipSink = resolveOpenPolicy(settings?.openPolicy, "crx", contentType === "image" ? "image" : "text", "snip");
+            const snipDest: CrxDestination["type"] =
+                snipSink === "viewer" || snipSink === "display" ? "viewer" : "workcenter";
             const destinations: CrxDestination[] = [
                 { type: "clipboard", options: { showFeedback: true } },
                 { type: "content-script" },
-                { type: "workcenter" },
+                { type: snipDest },
                 { type: "notification" },
                 ...extraDest,
             ];
@@ -720,7 +731,7 @@ const CTX_MENU_AMP = "&&";
  * Idempotent — safe on SW wake (onInstalled alone misses already-installed updates).
  * WHY: clipboard menus use hub WS + ecosystem token; Control pairing is Settings-only.
  */
-const ensureCwspContextMenus = () => {
+function ensureCwspContextMenus() {
     const upsert = (
         id: string,
         title: string,
@@ -753,7 +764,7 @@ const ensureCwspContextMenus = () => {
     };
     upsert(CWSP_CTX_COPY_SHARE, `Copy ${CTX_MENU_AMP} Share by CWSP`, ["selection"]);
     upsert(CWSP_CTX_PASTE, "Paste by CWSP", ["editable", "page", "frame"]);
-};
+}
 
 const CUSTOM_PREFIX = "CUSTOM_INSTRUCTION:";
 let customMenuIds: string[] = [];
