@@ -554,14 +554,11 @@ export class EnvironmentShell extends ShellBase {
         if (!id || id === "airpad") return;
         const withNative = mergeNativeOpt(id, opts);
         /*
-         * WHY: browser windows are keyed per URL (`browser:<hash>`). Always go through
-         * openView so params.url is applied — focusWindow("browser") would miss them.
+         * WHY: focusWindow() used to win and drop opts.params — Explorer then
+         * "opened" an existing empty viewer. Always go through openView (browser
+         * already did this for params.url).
          */
-        if (id === "browser" || id === "web" || id === "iframe" || id === "webview") {
-            void this.windowLayer?.shellContext.openView?.(id, withNative);
-        } else if (!this.windowLayer?.focusWindow(id)) {
-            void this.windowLayer?.shellContext.openView?.(id, withNative);
-        }
+        void this.windowLayer?.shellContext.openView?.(id, withNative);
         /* WHY: always re-assert native after open/focus — existing frames used to skip it. */
         if (wantsNative(withNative)) {
             const promote = (): void => {
