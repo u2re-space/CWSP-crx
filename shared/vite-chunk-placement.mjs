@@ -27,6 +27,7 @@ const FEST_DIR_TO_IMPORT = {
     "core.ts": "core",
     "dom.ts": "dom",
     "object.ts": "object",
+    "style.ts": "style-lib",
     "veela.css": "veela",
     "lur.e": "lure",
     "icon.ts": "icon",

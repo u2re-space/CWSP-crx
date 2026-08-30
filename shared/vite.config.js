@@ -469,6 +469,7 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             { find: "@phosphor-icons/core", replacement: phosphorCoreRoot },
             /* Dev server: ensure this id always resolves (tsconfig path is relative to app root; some setups mis-resolve). */
             { find: "@fest-lib/veela/runtime", replacement: veelaVariantRuntimeTs },
+            { find: /^@fest-lib\/veela\/scss\/(.*)$/, replacement: `${resolve(workspaceRoot, "modules/projects/veela.css/src/scss")}/$1` },
             /* COMPAT: some CRX/SW paths still import bare `fest/lure`; package id is `@fest-lib/lure`. */
             { find: /^fest\/lure$/, replacement: "@fest-lib/lure" },
             /* Rolldown: bare tsconfig alias loses `?inline` imports on this key (viewer-view Markdown typography). */
@@ -828,6 +829,7 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             polyfill: true,
             include: [
                 "@fest-lib/dom",
+                "@fest-lib/style-lib",
                 "@fest-lib/lure",
                 "@fest-lib/object",
                 "@fest-lib/uniform",
