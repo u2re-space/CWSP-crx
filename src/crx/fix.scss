@@ -1,6 +1,5 @@
 /* ai-refactor: optimized/refactored at 2026-02-16T10:34:36Z */
-@layer ui-system {
-    @layer base {
+@layer base {
         :where(:root) {
             color-scheme: light dark;
         }
@@ -143,9 +142,8 @@
 
             :where(*)::-webkit-scrollbar {
                 display: none;
-            }
-        }
     }
+}
 
     @layer layout {
         :where(body) {

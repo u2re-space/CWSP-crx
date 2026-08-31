@@ -1,7 +1,8 @@
 // CWSP-crx Popup Styles
 // Scoped to [data-crx-page="popup"] to prevent leaking
 
-@layer webext-popup {
+@scope (:root[data-crx-page="popup"]) {
+@layer components {
     /* Extension popups often resolve `light-dark()` and prefers-color-scheme as *light*.
        Default the shell to dark tokens; only [data-crx-theme="light"] / system+light OS use light. */
     :root[data-crx-page="popup"] {
@@ -743,4 +744,5 @@
             block-size: fit-content;
         }
     }
+}
 }
