@@ -43,6 +43,14 @@ import {
     notifyCwspClipboard,
     pasteByCwsp,
 } from "./network/cwsp-clipboard-actions";
+import { safeCacheMatch, safeCachesMatch } from "com/routing/pwa/sw-cache";
+import {
+    publishSwFrontendResult,
+    publishSwShareReceived,
+    shareLandingPath
+} from "com/routing/pwa/sw-result-wire";
+
+const SHARE_LANDING_PATH = shareLandingPath("crx");
 
 // ---------------------------------------------------------------------------
 // Environment detection
@@ -1865,43 +1873,6 @@ const toSWContentCacheRequest = (cacheKey: string): string => {
     return new URL(`${SW_CONTENT_CACHE_PREFIX}${encodeURIComponent(safeKey)}`, self.location.origin).toString();
 };
 
-const toCacheRequestInfo = (requestLike: RequestInfo | URL | null | undefined): RequestInfo | undefined => {
-    if (!requestLike) return undefined;
-    return requestLike instanceof URL ? requestLike.toString() : requestLike;
-};
-
-const safeCacheMatch = async (
-    cache: Cache | null | undefined,
-    requestLike: RequestInfo | URL | null | undefined
-): Promise<Response | undefined> => {
-    const request = toCacheRequestInfo(requestLike);
-    if (!cache || !request) return undefined;
-    /** Cache#match rejects non-Request / non-string (minified callers may pass plain objects). */
-    const key =
-        typeof request === 'string'
-            ? request
-            : request instanceof Request
-              ? request
-              : undefined;
-    if (!key) return undefined;
-    try {
-        return await cache?.match?.(key);
-    } catch (error) {
-        console.warn('[SW] Cache.match failed:', request, error);
-        return undefined;
-    }
-};
-
-const safeCachesMatch = async (requestLike: RequestInfo | URL | null | undefined): Promise<Response | undefined> => {
-    const request = toCacheRequestInfo(requestLike);
-    if (!request) return undefined;
-    try {
-        return await caches?.match?.(request);
-    } catch (error) {
-        console.warn('[SW] caches.match failed:', request, error);
-        return undefined;
-    }
-};
 
 const safeIsUserScopePath = (pathname: string): boolean => {
     try {
@@ -2245,7 +2216,8 @@ const sendToast = (message: string, kind: 'info' | 'success' | 'warning' | 'erro
  * Notify frontend about received share target data
  */
 const notifyShareReceived = (data: unknown): void => {
-    broadcast(CHANNELS.SHARE_TARGET, { type: 'share-received', data });
+    const row = data && typeof data === "object" ? (data as Record<string, unknown>) : { text: data };
+    publishSwShareReceived(row);
 };
 
 /**
@@ -2253,6 +2225,11 @@ const notifyShareReceived = (data: unknown): void => {
  */
 const notifyAIResult = (result: { success: boolean; data?: unknown; error?: string }): void => {
     broadcast(CHANNELS.SHARE_TARGET, { type: 'ai-result', data: result });
+    publishSwFrontendResult({
+        type: "ai-result",
+        data: result,
+        persist: result.success !== false
+    });
 };
 
 /**
@@ -2652,8 +2629,9 @@ registerRoute(({ url, request }) => isShareTargetUrl(url?.pathname) && request?.
             timestamp: shareData.timestamp,
             fileCount: shareData.files.length,
             imageCount: shareData.imageFiles.length,
-            // Mark whether AI will process this
-            aiEnabled: aiConfig.enabled
+            files: shareData.files,
+            aiEnabled: aiConfig.enabled,
+            source: "share-target"
         });
 
         // Step 5: AI Processing (async, non-blocking)
@@ -2728,7 +2706,7 @@ registerRoute(({ url, request }) => isShareTargetUrl(url?.pathname) && request?.
         return new Response(null, {
             status: 302,
             // Prefer share-target entry path (SPA), then app decides how to handle.
-            headers: { Location: '/share-target?shared=1' }
+            headers: { Location: SHARE_LANDING_PATH }
         });
     } catch (err: any) {
         console.error('[ShareTarget] Handler error:', err);
@@ -3588,7 +3566,7 @@ registerRoute(
         return new Response(null, {
             status: 302,
             // Keep real share flow marker instead of test marker.
-            headers: { Location: '/workcenter?shared=1' }
+            headers: { Location: SHARE_LANDING_PATH }
         });
     },
     'GET'
@@ -3907,12 +3885,13 @@ self.addEventListener?.('launchqueue', async (event: any) => {
             timestamp: shareData.timestamp,
             fileCount: shareData.files.length,
             imageCount: shareData.imageFiles.length,
+            files: shareData.files,
             source: 'launch-queue',
             route: 'launch-queue'
         });
         sendToast(`Received ${shareData.files.length} launched file(s)`, 'info');
 
-        const targetUrl = '/share-target?shared=1';
+        const targetUrl = SHARE_LANDING_PATH;
         const clientsList = await (self as any).clients?.matchAll?.({ type: 'window', includeUncontrolled: true }) || [];
         if (clientsList.length > 0) {
             await clientsList[0].focus?.();
