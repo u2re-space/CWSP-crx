@@ -21,6 +21,17 @@ import * as swAiMod from "../sw-ai-modules";
 /** Compress images larger than 2 MB */
 const SIZE_THRESHOLD = 2 * 1024 * 1024;
 
+/** WHY: Injecting the Vite content-script loader into file:// logs unique-origin errors. */
+const canInjectContentScript = (url?: string | null): boolean => {
+    if (!url) return false;
+    try {
+        const protocol = new URL(url).protocol;
+        return protocol === "http:" || protocol === "https:";
+    } catch {
+        return false;
+    }
+};
+
 const MARKDOWN_EXT_RE = /\.(?:md|markdown|mdown|mkd|mkdn|mdtxt|mdtext)(?:$|[?#])/i;
 
 // ---------------------------------------------------------------------------
@@ -349,7 +360,7 @@ export const COPY_HACK = async (
             if (tabId && tabId > 0) {
                 try {
                     const tab = await ext.tabs.get(tabId).catch(() => null);
-                    if (tab) {
+                    if (tab && canInjectContentScript(tab.url)) {
                         await ext.scripting.executeScript({ target: { tabId }, files: ["content/main.ts"] }).catch(() => {});
                         const r = await ext.tabs.sendMessage(tabId, { type: "COPY_HACK", data: text });
                         if (r?.ok) return resolve({ ok: true });
@@ -381,7 +392,7 @@ export const COPY_HACK = async (
             try {
                 const tabs = await ext.tabs.query({}).catch(() => []);
                 for (const tab of tabs || []) {
-                    if (tab?.id && tab.id !== tabId) {
+                    if (tab?.id && tab.id !== tabId && canInjectContentScript(tab.url)) {
                         try {
                             await ext.scripting.executeScript({ target: { tabId: tab.id }, files: ["content/main.ts"] }).catch(() => {});
                             const r = await ext.tabs.sendMessage(tab.id, { type: "COPY_HACK", data: text });

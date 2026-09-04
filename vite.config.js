@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { crx } from "@crxjs/vite-plugin";
 import { loadEnv } from "vite";
 
-import { assetFileNames as distAssetFileNames, chunkFileNames as distChunkFileNames } from "./shared/vite-chunk-placement.mjs";
+import { assetFileNames as distAssetFileNames, chunkFileNames as distChunkFileNames, fontRegistryCodeSplittingGroups } from "./shared/vite-chunk-placement.mjs";
 
 /**
  * CRX MV3 only: keep service-worker-adjacent deps out of `com/app.js`.
@@ -39,6 +39,7 @@ const crxRolldownOutputChunks = {
 const crxRolldownCodeSplitting = {
     codeSplitting: {
         groups: [
+            ...fontRegistryCodeSplittingGroups,
             {
                 name: CRX_SW_SHARED_CHUNK,
                 test: CRX_SW_SHARED_CHUNK_TEST,
@@ -307,6 +308,10 @@ const { manualChunks: _ignoredCrxManualChunks, ...crxOutputBase } = baseOutput;
                     {
                         src: resolve(__dirname, "./assets/wallpaper.jpg"),
                         dest: "assets",
+                    },
+                    {
+                        src: resolve(crxRoot, "rules/markdown-raw.json"),
+                        dest: "rules",
                     },
                 ],
             }),

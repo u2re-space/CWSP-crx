@@ -72,12 +72,12 @@
             </div>
         </section>
 
-        <!-- Feature 1: Markdown Viewer -->
+        <!-- Feature 1: Markdown Viewer — local File… only. Open-by-URL is CWSP-document. -->
         <section class="popup-section">
             <h2>Markdown Viewer</h2>
             <div class="md-controls">
-                <input type="url" id="md-url" placeholder="URL, or file path (e.g. C:\notes\doc.md)…" >
-                <button type="button" id="md-open" title="Open in viewer">Open</button>
+                <input type="file" id="md-file" accept=".md,.markdown,.mdown,.mkd,.mkdn,.mdtxt,.mdtext,text/markdown,text/plain" hidden>
+                <button type="button" id="md-pick" title="Open a local markdown file">File…</button>
             </div>
         </section>
 

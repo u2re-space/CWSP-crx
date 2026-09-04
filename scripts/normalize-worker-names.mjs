@@ -173,7 +173,7 @@ async function patchCrxManifest(distPath) {
         : [];
 
     const fullRuntimeEntry = {
-        matches: ["<all_urls>", "file://*/*", "file:///*"],
+        matches: ["http://*/*", "https://*/*"],
         resources,
         use_dynamic_url: false,
     };
@@ -190,6 +190,19 @@ async function patchCrxManifest(distPath) {
     });
     nextWar.push(fullRuntimeEntry);
     manifest.web_accessible_resources = nextWar;
+
+    /* WHY: Vite's content-script loader dynamic-imports chunks/crx-content-bootstrap.js.
+     * file:// pages cannot load that (WAR + unique origins). Never match file: / <all_urls>. */
+    const httpOnlyMatches = ["http://*/*", "https://*/*"];
+    if (Array.isArray(manifest.content_scripts)) {
+        for (const cs of manifest.content_scripts) {
+            cs.matches = httpOnlyMatches;
+            cs.exclude_matches = [
+                "https://raw.githubusercontent.com/*",
+                "https://gist.githubusercontent.com/*",
+            ];
+        }
+    }
 
     const nextText = `${JSON.stringify(manifest, null, 2)}\n`;
     if (nextText === manifestText) return false;

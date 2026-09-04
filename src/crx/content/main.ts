@@ -1,7 +1,7 @@
 /**
  * CWSP-crx — Content Script Entry
  *
- * Injected into every page at document_start.
+ * Injected into http(s) pages at document_start (never file://).
  * Handles:
  *  - Overlay + toast initialization
  *  - Copy-as-* operations (LaTeX, MathML, Markdown, HTML)
@@ -25,8 +25,20 @@ import "./snip";           // START_SNIP / SOLVE_AND_ANSWER / WRITE_CODE / EXTRA
 // Init overlay & broadcast receivers
 // ---------------------------------------------------------------------------
 
+const isFileMarkdownPage = (): boolean => {
+    try {
+        const href = String(globalThis?.location?.href || "");
+        if (!href.startsWith("file:")) return false;
+        const pathname = String(globalThis?.location?.pathname || "");
+        return /\.(?:md|markdown|mdown|mkd|mkdn|mdtxt|mdtext)(?:$|[?#])/i.test(pathname);
+    } catch {
+        return false;
+    }
+};
+
 // Overlay: injects shared styles + toast/clipboard receivers only; DOM nodes are created on demand.
-initOverlay();
+// WHY: file:// markdown is a unique origin — skip overlay so we do not trigger nested file loads.
+if (!isFileMarkdownPage()) initOverlay();
 
 // ---------------------------------------------------------------------------
 // Coordinate / element tracking (for context-menu hit-testing)

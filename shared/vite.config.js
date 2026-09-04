@@ -473,6 +473,10 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             { find: /^@fest-lib\/veela\/scss\/(.*)$/, replacement: `${resolve(workspaceRoot, "modules/projects/veela.css/src/scss")}/$1` },
             /* COMPAT: some CRX/SW paths still import bare `fest/lure`; package id is `@fest-lib/lure`. */
             { find: /^fest\/lure$/, replacement: "@fest-lib/lure" },
+            /* WHY: CRX Rolldown collapses `marked-katex-extension` onto `katex` default. */
+            { find: /^marked-katex-extension$/, replacement: resolve(workspaceRoot, "node_modules/marked-katex-extension/src/index.js") },
+            { find: /^@fest-lib\/fl-ui\/markdown\/highlight$/, replacement: resolve(workspaceRoot, "modules/projects/fl.ui/src/ui/markdown/highlight.ts") },
+            { find: /^@fest-lib\/fl-ui\/markdown\/render$/, replacement: resolve(workspaceRoot, "modules/projects/fl.ui/src/ui/markdown/render.ts") },
             /* Rolldown: bare tsconfig alias loses `?inline` imports on this key (viewer-view Markdown typography). */
             { find: /^markdown-view-typography(.*)$/, replacement: `${markdownTypographyScss}$1` },
             ...importFromTSConfig(tsconfig, __dirname),

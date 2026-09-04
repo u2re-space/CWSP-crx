@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": { "extensionPath": "/markdown/viewer.html" }
+    },
+    "condition": {
+      "regexFilter": "^https://raw\\.githubusercontent\\.com/.+\\.md(?:\\?.*)?$",
+      "resourceTypes": ["main_frame"]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": { "extensionPath": "/markdown/viewer.html" }
+    },
+    "condition": {
+      "regexFilter": "^https://gist\\.githubusercontent\\.com/.+\\.md(?:\\?.*)?$",
+      "resourceTypes": ["main_frame"]
+    }
+  },
+  {
+    "id": 3,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": { "extensionPath": "/markdown/viewer.html" }
+    },
+    "condition": {
+      "urlFilter": "||raw.githubusercontent.com/*.md",
+      "resourceTypes": ["main_frame"]
+    }
+  },
+  {
+    "id": 4,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": { "extensionPath": "/markdown/viewer.html" }
+    },
+    "condition": {
+      "urlFilter": "||gist.githubusercontent.com/*.md",
+      "resourceTypes": ["main_frame"]
+    }
+  },
+  {
+    "id": 5,
+    "priority": 1,
+    "action": {
+      "type": "redirect",
+      "redirect": { "extensionPath": "/markdown/viewer.html" }
+    },
+    "condition": {
+      "urlFilter": "||github.com/*/blob/*.md",
+      "resourceTypes": ["main_frame"]
+    }
+  }
+]

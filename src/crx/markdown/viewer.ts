@@ -28,26 +28,38 @@ const loadFromSessionKey = async (key: string): Promise<string | null> => {
     return null;
 };
 
-const fetchViaServiceWorker = (src: string): Promise<{ ok: boolean; key?: string; src?: string; error?: string }> => {
-    return new Promise((resolve) => {
+const sendSw = <T,>(payload: Record<string, unknown>, ms: number): Promise<T | null> =>
+    new Promise((resolve) => {
+        let done = false;
+        const finish = (value: T | null) => {
+            if (done) return;
+            done = true;
+            resolve(value);
+        };
+        const timer = globalThis.setTimeout(() => finish(null), ms);
         try {
             if (!chrome?.runtime?.id) {
-                resolve({ ok: false, error: "runtime-unavailable" });
+                globalThis.clearTimeout(timer);
+                finish(null);
                 return;
             }
-            chrome.runtime.sendMessage({ type: "md:load", src }, (response) => {
+            chrome.runtime.sendMessage(payload, (response) => {
+                globalThis.clearTimeout(timer);
                 if (chrome.runtime.lastError) {
-                    console.warn("[Viewer] SW fetch failed:", chrome.runtime.lastError);
-                    resolve({ ok: false, error: chrome.runtime.lastError.message || "runtime-error" });
+                    finish(null);
                     return;
                 }
-                resolve(response || { ok: false });
+                finish((response || null) as T | null);
             });
-        } catch (error) {
-            console.warn("[Viewer] sendMessage failed:", error);
-            resolve({ ok: false, error: "runtime-invalidated" });
+        } catch {
+            globalThis.clearTimeout(timer);
+            finish(null);
         }
     });
+
+const fetchViaServiceWorker = async (src: string): Promise<{ ok: boolean; key?: string; src?: string; error?: string }> => {
+    const response = await sendSw<{ ok?: boolean; key?: string; src?: string; error?: string }>({ type: "md:load", src }, 8000);
+    return response || { ok: false, error: "runtime-timeout" };
 };
 
 const fetchDirect = async (src: string): Promise<string | null> => {
@@ -56,7 +68,7 @@ const fetchDirect = async (src: string): Promise<string | null> => {
         return null;
     }
     try {
-        const res = await fetch(src, { credentials: "include", cache: "no-store" });
+        const res = await fetch(src, { credentials: "omit", cache: "no-store", signal: AbortSignal.timeout(8000) });
         if (!res.ok) return null;
         const text = await res.text();
         const trimmed = text.trimStart().toLowerCase();
@@ -70,12 +82,13 @@ const fetchDirect = async (src: string): Promise<string | null> => {
 };
 
 const loadMarkdown = async (src: string, sessionKey?: string | null): Promise<string> => {
+    const fetchSrc = toFetchableMarkdownUrl(src);
     if (sessionKey) {
         const text = await loadFromSessionKey(sessionKey);
         if (text) return text;
     }
 
-    const swResult = await fetchViaServiceWorker(src);
+    const swResult = await fetchViaServiceWorker(fetchSrc);
     if (swResult.ok && swResult.key) {
         const text = await loadFromSessionKey(swResult.key);
         if (text) return text;
@@ -84,10 +97,10 @@ const loadMarkdown = async (src: string, sessionKey?: string | null): Promise<st
         return "> Skipped loading: source appears to be HTML or is not confidently Markdown.";
     }
 
-    const text = await fetchDirect(src);
+    const text = await fetchDirect(fetchSrc);
     if (text) return text;
 
-    return `> Failed to load markdown from:\n> ${src}`;
+    return `> Failed to load markdown from:\n> ${fetchSrc}`;
 };
 
 const isVirtualViewValue = (value?: string | null): boolean => {
@@ -105,6 +118,38 @@ const isBrowsableUrl = (url?: string): boolean => {
 
 const looksLikeMarkdownSourceUrl = (url: string): boolean =>
     /\.(?:md|markdown|mdown|mkd|mkdn|mdtxt|mdtext)(?:$|[?#])/i.test(url);
+
+const toFetchableMarkdownUrl = (candidate: string): string => {
+    try {
+        const url = new URL(candidate);
+        const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+        if (host !== "github.com") return candidate;
+        const blob = url.pathname.match(/^\/([^/]+)\/([^/]+)\/blob\/(.+)$/i);
+        if (blob && looksLikeMarkdownSourceUrl(blob[3])) {
+            return `https://raw.githubusercontent.com/${blob[1]}/${blob[2]}/${blob[3]}`;
+        }
+        const raw = url.pathname.match(/^\/([^/]+)\/([^/]+)\/raw\/(.+)$/i);
+        if (raw && looksLikeMarkdownSourceUrl(raw[3])) {
+            return `https://raw.githubusercontent.com/${raw[1]}/${raw[2]}/${raw[3]}`;
+        }
+        return candidate;
+    } catch {
+        return candidate;
+    }
+};
+
+const CRX_MD_BOOT_KEY = "__CWSP_CRX_MD_BOOT__";
+const EMPTY_MARKDOWN_PLACEHOLDER = "# No content\n\nOpen a markdown file or navigate to a `.md` URL.";
+
+const httpSourceFromHash = (): string | null => {
+    try {
+        const raw = decodeURIComponent((location.hash || "").replace(/^#/, "")).trim();
+        if (/^https?:\/\//i.test(raw) && !/^file:/i.test(raw)) return raw;
+    } catch {
+        /* ignore */
+    }
+    return null;
+};
 
 const isCrxExtensionPage = (): boolean =>
     typeof globalThis.location !== "undefined" && globalThis.location.protocol === "chrome-extension:";
@@ -139,26 +184,30 @@ const resolveSourceFromOpenTabs = async (): Promise<string | null> => {
     }
 };
 
-const resolveSource = async (params: URLSearchParams): Promise<string | null> => {
+const resolveSource = async (params: URLSearchParams): Promise<{ source: string | null; key: string | null }> => {
+    const sessionKey = params.get("mdk");
+    const hashSource = httpSourceFromHash();
+    if (hashSource) return { source: toFetchableMarkdownUrl(hashSource), key: sessionKey };
+
     const explicitSource = params.get("src");
     if (explicitSource && !isVirtualViewValue(explicitSource)) {
         if (
             isCrxExtensionPage() &&
             /^file:/i.test(explicitSource.trim())
         ) {
-            return null;
+            return { source: null, key: sessionKey };
         }
-        return explicitSource;
+        return { source: toFetchableMarkdownUrl(explicitSource), key: sessionKey };
     }
 
     // For file:// opens, service worker preloads markdown into session storage.
     // Avoid probing open tabs, which can re-introduce file:// fetch attempts.
-    if (params.get("mdk")) {
-        return null;
+    if (sessionKey) {
+        return { source: null, key: sessionKey };
     }
     // Session-less file open (preload failed): never put file:// in ?src; ?origin=file only.
     if (params.get("origin") === "file") {
-        return null;
+        return { source: null, key: null };
     }
 
     const sourceFromView = params.get("view-src") || params.get("view");
@@ -167,12 +216,19 @@ const resolveSource = async (params: URLSearchParams): Promise<string | null> =>
             isCrxExtensionPage() &&
             /^file:/i.test(sourceFromView.trim())
         ) {
-            return null;
+            return { source: null, key: null };
         }
-        return sourceFromView;
+        return { source: toFetchableMarkdownUrl(sourceFromView), key: null };
     }
 
-    return resolveSourceFromOpenTabs();
+    const pending = await sendSw<{ src?: string; key?: string }>({ type: "md:pending-src" }, 4000);
+    const pendingSrc = typeof pending?.src === "string" ? pending.src.trim() : "";
+    const pendingKey = typeof pending?.key === "string" && pending.key.trim() ? pending.key.trim() : null;
+    if (pendingSrc && !/^file:/i.test(pendingSrc)) return { source: toFetchableMarkdownUrl(pendingSrc), key: pendingKey };
+    if (pendingKey) return { source: null, key: pendingKey };
+
+    const tabSrc = await resolveSourceFromOpenTabs();
+    return { source: tabSrc ? toFetchableMarkdownUrl(tabSrc) : null, key: null };
 };
 
 const resolveTargetView = (params: URLSearchParams): ViewId | "markdown" | "markdown-viewer" => {
@@ -210,11 +266,10 @@ const init = async () => {
     showRawState("Loading...");
 
     const params = new URLSearchParams(location.search);
-    const mdk = params.get("mdk");
     const filename = params.get("filename") || undefined;
     const appendContent = params.get("append") || params.get("extra") || "";
     const directContent = params.get("content") || params.get("text");
-    const source = await resolveSource(params);
+    const { source, key: mdk } = await resolveSource(params);
     const sanitizedParams = sanitizeCrxViewerQueryParams(collectViewParams(params));
     const payloadSource =
         source && !(isCrxExtensionPage() && /^file:/i.test(source.trim()))
@@ -235,7 +290,7 @@ const init = async () => {
     }
 
     if (!markdown.trim()) {
-        markdown = "# No content\n\nOpen a markdown file or navigate to a `.md` URL.";
+        markdown = EMPTY_MARKDOWN_PLACEHOLDER;
     }
 
     applyCwspSku("document");
@@ -249,13 +304,34 @@ const init = async () => {
 
     const target = resolveTargetView(params);
     const dest = target === "editor" ? "editor" : target === "print" ? "print" : "viewer";
-    if (markdown.trim()) {
+    /* WHY: sessionStorage handoff can be consumed by a channel probe. Keep a same-tick bag for the view. */
+    try {
+        (globalThis as unknown as Record<string, unknown>)[CRX_MD_BOOT_KEY] = {
+            content: markdown,
+            src: payloadSource,
+            filename,
+        };
+    } catch {
+        /* ignore */
+    }
+    if (markdown.trim() && markdown !== EMPTY_MARKDOWN_PLACEHOLDER) {
         stashSkuHandoff({
             dest,
             content: markdown,
             filename,
             src: payloadSource
         });
+    }
+
+    /* WHY: Keep ?src= so BootLoader navigate params can fetch if the bag/handoff is missed. */
+    try {
+        const next = new URL(location.href);
+        if (payloadSource) next.searchParams.set("src", payloadSource);
+        if (mdk) next.searchParams.set("mdk", mdk);
+        const hash = httpSourceFromHash() && !payloadSource ? location.hash : "";
+        history.replaceState(null, "", `${next.pathname}${next.search}${hash}`);
+    } catch {
+        /* ignore */
     }
 
     const viewId = (dest === "editor" || dest === "print" ? dest : "viewer") as ViewId;

@@ -5,11 +5,13 @@
  *  - Context menu setup (copy-as-*, CWSP share/paste, snip modes, markdown viewer, custom instructions)
  *  - Keyboard command handling (Ctrl+Shift+X/Y)
  *  - AI recognition message dispatch (gpt:recognize, gpt:solve, gpt:code, gpt:css, gpt:custom, gpt:translate)
- *  - Markdown URL detection & auto-redirect to viewer
+ *  - Markdown File… open (URL intercept is off; open-by-URL is CWSP-document)
  *  - CRX result pipeline (clipboard → content-script → popup → workcenter → notification)
  *  - CRX unified messaging + CWSP hub (localhost Neutralino or WAN as L-110-crx)
  *
  * Heavy capture/AI/clipboard logic is in `./service/api.ts`.
+ *
+ * FIND:file-markdown
  */
 
 // WHY: first import — alias missing `window` before Vite preload / Capacitor touch it.
@@ -505,6 +507,8 @@ const processCrxSnipWithPipeline = async (
 const VIEWER_PAGE = "markdown/viewer.html";
 const VIEWER_ORIGIN = chrome.runtime.getURL("");
 const VIEWER_URL = chrome.runtime.getURL(VIEWER_PAGE);
+/* WHY: URL intercept never reliably loaded GitHub/raw markdown. Open by URL lives in CWSP-document. */
+const CRX_MARKDOWN_URL_INTERCEPT = false;
 const MARKDOWN_EXT_RE = /\.(?:md|markdown|mdown|mkd|mkdn|mdtxt|mdtext)(?:$|[?#])/i;
 const MD_VIEW_MENU_ID = "crossword:markdown-view";
 
@@ -516,16 +520,40 @@ const looksLikeHtmlDocument = (text: string): boolean => {
         || trimmed.startsWith("<body");
 };
 
+/* WHY: github.com/blob and /raw are HTML (or wrappers). Fetch raw.githubusercontent.com. */
+const toFetchableMarkdownUrl = (candidate: string): string => {
+    try {
+        const url = new URL(candidate);
+        const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+        if (host !== "github.com") return candidate;
+        const blob = url.pathname.match(/^\/([^/]+)\/([^/]+)\/blob\/(.+)$/i);
+        if (blob && MARKDOWN_EXT_RE.test(blob[3])) {
+            return `https://raw.githubusercontent.com/${blob[1]}/${blob[2]}/${blob[3]}`;
+        }
+        const raw = url.pathname.match(/^\/([^/]+)\/([^/]+)\/raw\/(.+)$/i);
+        if (raw && MARKDOWN_EXT_RE.test(raw[3])) {
+            return `https://raw.githubusercontent.com/${raw[1]}/${raw[2]}/${raw[3]}`;
+        }
+        return candidate;
+    } catch {
+        return candidate;
+    }
+};
+
 const isMarkdownUrl = (candidate?: string | null): candidate is string => {
     if (!candidate || typeof candidate !== "string") return false;
     try {
         const url = new URL(candidate);
         if (url.protocol === "chrome-extension:") return false;
         if (!["http:", "https:", "file:", "ftp:"].includes(url.protocol)) return false;
-        // GitHub blob/tree pages are HTML views, not raw markdown assets.
-        if (url.hostname === "github.com" && /(^|\/)(blob|tree)\//i.test(url.pathname)) return false;
+        const host = url.hostname.replace(/^www\./i, "").toLowerCase();
+        // Directory listing, not a file.
+        if (host === "github.com" && /(^|\/)tree\//i.test(url.pathname)) return false;
+        if (host === "github.com" && /(^|\/)(blob|raw)\//i.test(url.pathname) && MARKDOWN_EXT_RE.test(url.pathname)) {
+            return true;
+        }
         if (MARKDOWN_EXT_RE.test(url.pathname)) return true;
-        if (url.hostname === "raw.githubusercontent.com" || url.hostname === "gist.githubusercontent.com") {
+        if (host === "raw.githubusercontent.com" || host === "gist.githubusercontent.com") {
             if (MARKDOWN_EXT_RE.test(url.pathname)) return true;
             if (/(^|\/)readme(\.md)?($|[?#])/i.test(url.pathname)) return true;
         }
@@ -537,11 +565,12 @@ const markdownRedirectCooldown = new Map<number, number>();
 const MARKDOWN_REDIRECT_COOLDOWN_MS = 2500;
 
 const shouldThrottleMarkdownRedirect = (tabId: number) => {
-    const now = Date.now();
     const last = markdownRedirectCooldown.get(tabId) || 0;
-    if (now - last < MARKDOWN_REDIRECT_COOLDOWN_MS) return true;
-    markdownRedirectCooldown.set(tabId, now);
-    return false;
+    return Date.now() - last < MARKDOWN_REDIRECT_COOLDOWN_MS;
+};
+
+const markMarkdownRedirect = (tabId: number) => {
+    markdownRedirectCooldown.set(tabId, Date.now());
 };
 
 const parseMarkdownHeaders = (details: chrome.webRequest.WebResponseHeadersDetails) => {
@@ -563,7 +592,10 @@ const parseMarkdownHeaders = (details: chrome.webRequest.WebResponseHeadersDetai
         || contentType.includes("application/x-markdown");
 
     const dispositionHasMarkdownName = /filename\*?=.*\.(md|markdown|mdown|mkd|mkdn|mdtxt|mdtext)/i.test(contentDisposition);
-    const plainTextWithMarkdownHint = contentType.includes("text/plain") && dispositionHasMarkdownName;
+    const urlHasMarkdownExt = MARKDOWN_EXT_RE.test((() => {
+        try { return new URL(details.url).pathname; } catch { return ""; }
+    })());
+    const plainTextWithMarkdownHint = contentType.includes("text/plain") && (dispositionHasMarkdownName || urlHasMarkdownExt);
 
     return {
         typeLooksMarkdown,
@@ -575,8 +607,7 @@ const parseMarkdownHeaders = (details: chrome.webRequest.WebResponseHeadersDetai
 const isMarkdownContent = (text: string): boolean => {
     if (!text) return false;
     const trimmed = text.trim();
-    if (trimmed.startsWith("<") && trimmed.endsWith(">")) return false;
-    if (/<[a-zA-Z][^>]*>/.test(trimmed)) return false;
+    if (looksLikeHtmlDocument(trimmed)) return false;
 
     let score = 0, hits = 0;
     const patterns: [RegExp, number][] = [
@@ -608,13 +639,13 @@ const isDefinitelyMarkdownResponse = (sourceUrl: string, text: string, contentTy
 };
 
 const toViewerUrl = (source?: string | null, markdownKey?: string | null) => {
-    if (!source) return VIEWER_URL;
+    if (!source && !markdownKey) return VIEWER_URL;
     const p = new URLSearchParams();
-    const isFileUrl = source.startsWith("file:");
+    const isFileUrl = Boolean(source?.startsWith("file:"));
     // Never put file:// in the viewer query string: extension pages cannot fetch it, and
     // passing it may contribute to Chromium's "unique security origins" / nested file loads.
-    if (!isFileUrl) {
-        p.set("src", source);
+    if (source && !isFileUrl) {
+        p.set("src", toFetchableMarkdownUrl(source));
     }
     if (markdownKey) p.set("mdk", markdownKey);
     if (isFileUrl) p.set("origin", "file");
@@ -623,8 +654,19 @@ const toViewerUrl = (source?: string | null, markdownKey?: string | null) => {
 
 const openViewer = (source?: string | null, tabId?: number, markdownKey?: string | null) => {
     const url = toViewerUrl(source ?? undefined, markdownKey);
-    if (typeof tabId === "number") chrome.tabs.update(tabId, { url })?.catch?.(console.warn);
-    else chrome.tabs.create({ url })?.catch?.(console.warn);
+    if (typeof tabId !== "number") {
+        chrome.tabs.create({ url })?.catch?.(console.warn);
+        return;
+    }
+    void chrome.tabs.get(tabId).then((tab) => {
+        if (tab?.url?.startsWith("file:")) {
+            chrome.tabs.create({ url })?.catch?.(console.warn);
+            return;
+        }
+        chrome.tabs.update(tabId, { url })?.catch?.(console.warn);
+    }).catch(() => {
+        chrome.tabs.create({ url })?.catch?.(console.warn);
+    });
 };
 
 const createSessionKey = () => {
@@ -660,27 +702,212 @@ const putMarkdownToSession = async (text: string) => {
     return stored ? key : null;
 };
 
+const pendingMarkdownByTab = new Map<number, string>();
+const pendingMarkdownKeyByTab = new Map<number, string>();
+const MD_PENDING_LAST = "md-pending-last";
+const MD_PENDING_MAX_AGE_MS = 60_000;
+const MD_PENDING_LAST_AGE_MS = 15_000;
+const MD_DNR_RULE_IDS = [9101, 9102, 9103, 9104];
+
+type PendingMarkdownRec = { url: string; at: number; key?: string };
+
+const pendingTabStorageKey = (tabId: number) => `md-pending-tab:${tabId}`;
+
+const rememberPendingMarkdown = (tabId: number, url: string): void => {
+    if (!isMarkdownUrl(url) || url.startsWith(VIEWER_ORIGIN) || /^file:/i.test(url)) return;
+    const fetchable = toFetchableMarkdownUrl(url);
+    if (tabId > 0) pendingMarkdownByTab.set(tabId, fetchable);
+    const rec: PendingMarkdownRec = { url: fetchable, at: Date.now() };
+    const payload: Record<string, PendingMarkdownRec> = { [MD_PENDING_LAST]: rec };
+    if (tabId > 0) payload[pendingTabStorageKey(tabId)] = rec;
+    void chrome.storage.session?.set?.(payload);
+};
+
+const takePendingMarkdown = async (tabId: number): Promise<{ src: string; key: string }> => {
+    const memSrc = tabId > 0 ? pendingMarkdownByTab.get(tabId) || "" : "";
+    const memKey = tabId > 0 ? pendingMarkdownKeyByTab.get(tabId) || "" : "";
+    if (memSrc) return { src: memSrc, key: memKey };
+    try {
+        const keys = tabId > 0 ? [pendingTabStorageKey(tabId), MD_PENDING_LAST] : [MD_PENDING_LAST];
+        const data = await chrome.storage.session?.get?.(keys);
+        const tabRec = tabId > 0 ? data?.[pendingTabStorageKey(tabId)] as PendingMarkdownRec | undefined : undefined;
+        const lastRec = data?.[MD_PENDING_LAST] as PendingMarkdownRec | undefined;
+        const now = Date.now();
+        if (tabRec?.url && now - tabRec.at < MD_PENDING_MAX_AGE_MS) {
+            return { src: tabRec.url, key: tabRec.key || "" };
+        }
+        if (lastRec?.url && now - lastRec.at < MD_PENDING_LAST_AGE_MS) {
+            return { src: lastRec.url, key: lastRec.key || "" };
+        }
+    } catch {
+        /* ignore */
+    }
+    return { src: "", key: "" };
+};
+
+/* WHY: extensionPath drops the original URL. A query ?src=https://… is often
+ * rejected as the substitution dest; the fragment keeps the URL and never loads
+ * the sandboxed raw document. */
+const markdownDnrRules = (): chrome.declarativeNetRequest.Rule[] => {
+    const dest = `${VIEWER_URL}#\\1`;
+    return [
+        {
+            id: 9101,
+            priority: 2,
+            action: { type: "redirect", redirect: { regexSubstitution: dest } },
+            condition: {
+                regexFilter: "^(https://raw\\.githubusercontent\\.com/.+\\.md(?:\\?.*)?)$",
+                resourceTypes: ["main_frame"],
+            },
+        },
+        {
+            id: 9102,
+            priority: 2,
+            action: { type: "redirect", redirect: { regexSubstitution: dest } },
+            condition: {
+                regexFilter: "^(https://gist\\.githubusercontent\\.com/.+\\.md(?:\\?.*)?)$",
+                resourceTypes: ["main_frame"],
+            },
+        },
+        {
+            id: 9103,
+            priority: 2,
+            action: {
+                type: "redirect",
+                redirect: { regexSubstitution: `${VIEWER_URL}#https://raw.githubusercontent.com/\\1/\\2/\\3` },
+            },
+            condition: {
+                regexFilter: "^https://(?:www\\.)?github\\.com/([^/]+)/([^/]+)/blob/(.+\\.md)(?:\\?.*)?$",
+                resourceTypes: ["main_frame"],
+            },
+        },
+        {
+            id: 9104,
+            priority: 2,
+            action: {
+                type: "redirect",
+                redirect: { regexSubstitution: `${VIEWER_URL}#https://raw.githubusercontent.com/\\1/\\2/\\3` },
+            },
+            condition: {
+                regexFilter: "^https://(?:www\\.)?github\\.com/([^/]+)/([^/]+)/raw/(.+\\.md)(?:\\?.*)?$",
+                resourceTypes: ["main_frame"],
+            },
+        },
+    ];
+};
+
+const markdownDnrFallbackRules = (): chrome.declarativeNetRequest.Rule[] => [
+    {
+        id: 9101,
+        priority: 2,
+        action: { type: "redirect", redirect: { extensionPath: "/markdown/viewer.html" } },
+        condition: {
+            regexFilter: "^https://raw\\.githubusercontent\\.com/.+\\.md(?:\\?.*)?$",
+            resourceTypes: ["main_frame"],
+        },
+    },
+    {
+        id: 9102,
+        priority: 2,
+        action: { type: "redirect", redirect: { extensionPath: "/markdown/viewer.html" } },
+        condition: {
+            regexFilter: "^https://gist\\.githubusercontent\\.com/.+\\.md(?:\\?.*)?$",
+            resourceTypes: ["main_frame"],
+        },
+    },
+    {
+        id: 9103,
+        priority: 2,
+        action: { type: "redirect", redirect: { extensionPath: "/markdown/viewer.html" } },
+        condition: {
+            regexFilter: "^https://(?:www\\.)?github\\.com/[^/]+/[^/]+/blob/.+\\.md(?:\\?.*)?$",
+            resourceTypes: ["main_frame"],
+        },
+    },
+    {
+        id: 9104,
+        priority: 2,
+        action: { type: "redirect", redirect: { extensionPath: "/markdown/viewer.html" } },
+        condition: {
+            regexFilter: "^https://(?:www\\.)?github\\.com/[^/]+/[^/]+/raw/.+\\.md(?:\\?.*)?$",
+            resourceTypes: ["main_frame"],
+        },
+    },
+];
+
+const ensureMarkdownDnrRules = (): void => {
+    const dnr = chrome.declarativeNetRequest;
+    if (!dnr?.updateDynamicRules) return;
+    if (!CRX_MARKDOWN_URL_INTERCEPT) {
+        void dnr.updateDynamicRules({ removeRuleIds: MD_DNR_RULE_IDS, addRules: [] }).catch(() => undefined);
+        return;
+    }
+    /* WHY: Redirect GitHub raw/gist .md before the sandboxed document loads.
+     * JPEG XL Viewer / Stylish then never inject into default-src 'none'. */
+    void dnr.updateDynamicRules({
+        removeRuleIds: MD_DNR_RULE_IDS,
+        addRules: markdownDnrRules(),
+    }).catch((error) => {
+        console.warn("[SW] markdown DNR hash redirect failed, using extensionPath:", error);
+        void dnr.updateDynamicRules({
+            removeRuleIds: MD_DNR_RULE_IDS,
+            addRules: markdownDnrFallbackRules(),
+        }).catch((fallbackError) => console.warn("[SW] markdown DNR rules:", fallbackError));
+    });
+};
+
+ensureMarkdownDnrRules();
+if (!CRX_MARKDOWN_URL_INTERCEPT) {
+    void chrome.contextMenus.remove(MD_VIEW_MENU_ID).catch(() => undefined);
+}
+
 const fetchMarkdownText = async (candidate: string) => {
-    const src = candidate;
-    const res = await fetch(src, { credentials: "include", cache: "no-store" });
+    const src = toFetchableMarkdownUrl(candidate);
+    /* WHY: MV3 workers must not fetch file:// — Chromium logs unique-origin and the
+     * body is empty. Read an open file tab via executeScript, or take File.text(). */
+    if (/^file:/i.test(src)) {
+        return { ok: false, status: 0, src, text: "", contentType: "" };
+    }
+    const res = await fetch(src, {
+        credentials: "omit",
+        cache: "no-store",
+        signal: AbortSignal.timeout(8000),
+    });
     const text = await res.text().catch(() => "");
     const contentType = (res.headers.get("content-type") || "").toLowerCase();
     return { ok: res.ok, status: res.status, src, text, contentType };
 };
 
+const prefetchPendingMarkdown = (tabId: number, url: string): void => {
+    void (async () => {
+        const fetched = await fetchMarkdownText(url).catch(() => null);
+        if (!fetched?.ok || !fetched.text) return;
+        if (!isDefinitelyMarkdownResponse(fetched.src, fetched.text, fetched.contentType)) return;
+        const key = await putMarkdownToSession(fetched.text);
+        if (!key) return;
+        if (tabId > 0) pendingMarkdownKeyByTab.set(tabId, key);
+        const rec: PendingMarkdownRec = { url: fetched.src || toFetchableMarkdownUrl(url), at: Date.now(), key };
+        const payload: Record<string, PendingMarkdownRec> = { [MD_PENDING_LAST]: rec };
+        if (tabId > 0) payload[pendingTabStorageKey(tabId)] = rec;
+        await chrome.storage.session?.set?.(payload);
+    })();
+};
+
 const openMarkdownInViewer = async (originalUrl: string, tabId: number) => {
+    if (!CRX_MARKDOWN_URL_INTERCEPT && !/^file:/i.test(originalUrl)) return false;
     if (tabId > 0 && shouldThrottleMarkdownRedirect(tabId)) return true;
     if (originalUrl.startsWith("file:")) {
-        const text = tabId > 0 ? await tryReadMarkdownFromTab(tabId, originalUrl) : "";
-        const key = text ? await putMarkdownToSession(text) : null;
-        openViewer(originalUrl, tabId, key);
-        return true;
+        const opened = await openFileMarkdownFromTab(tabId, originalUrl);
+        if (opened && tabId > 0) markMarkdownRedirect(tabId);
+        return opened;
     }
     const fetched = await fetchMarkdownText(originalUrl).catch(() => null);
     if (!fetched || !fetched.ok || !fetched.text) return false;
     if (!isDefinitelyMarkdownResponse(fetched.src, fetched.text, fetched.contentType)) return false;
     const key = await putMarkdownToSession(fetched.text);
+    if (!key) return false;
     openViewer(fetched.src, tabId, key);
+    if (tabId > 0) markMarkdownRedirect(tabId);
     return true;
 };
 
@@ -695,7 +922,9 @@ const tryReadMarkdownFromTab = async (tabId: number, url?: string) => {
                     const md = document.querySelector(".markdown-body");
                     if (md?.textContent?.trim()) return md.textContent.trim();
                 }
-                return document?.body?.innerText?.trim() || "";
+                const pre = document.querySelector("pre");
+                const fromPre = pre?.innerText?.trim() || pre?.textContent?.trim() || "";
+                return fromPre || document?.body?.innerText?.trim() || document?.documentElement?.innerText?.trim() || "";
             },
             args: [url || ""],
         });
@@ -740,10 +969,11 @@ const CTX_MENU_AMP = "&&";
  * WHY: clipboard menus use hub WS + ecosystem token; Control pairing is Settings-only.
  */
 function ensureCwspContextMenus() {
+    type MenuContexts = NonNullable<chrome.contextMenus.CreateProperties["contexts"]>;
     const upsert = (
         id: string,
         title: string,
-        contexts: chrome.contextMenus.ContextType[]
+        contexts: MenuContexts
     ) => {
         try {
             chrome.contextMenus.update(id, { title, enabled: true }, () => {
@@ -771,7 +1001,8 @@ function ensureCwspContextMenus() {
         }
     };
     upsert(CWSP_CTX_COPY_SHARE, `Copy ${CTX_MENU_AMP} Share by CWSP`, ["selection"]);
-    upsert(CWSP_CTX_PASTE, "Paste by CWSP", ["editable", "page", "frame"]);
+    /* chrome-types ContextType omits "editable"; Chrome still accepts it for input fields. */
+    upsert(CWSP_CTX_PASTE, "Paste by CWSP", ["editable", "page", "frame"] as MenuContexts);
 }
 
 const CUSTOM_PREFIX = "CUSTOM_INSTRUCTION:";
@@ -801,15 +1032,20 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // ============================================================================
 
 chrome.runtime.onInstalled.addListener(() => {
+    ensureMarkdownDnrRules();
     for (const item of CTX_ITEMS) {
         try { chrome.contextMenus.create({ id: item.id, title: item.title, visible: true, contexts: CTX_CONTEXTS }); } catch { /* */ }
     }
-    try {
-        chrome.contextMenus.create({
-            id: MD_VIEW_MENU_ID, title: "Open in Markdown Viewer", contexts: ["link", "page"],
-            targetUrlPatterns: ["*://*/*.md", "*://*/*.markdown", "file://*/*.md", "file://*/*.markdown"],
-        });
-    } catch { /* */ }
+    if (CRX_MARKDOWN_URL_INTERCEPT) {
+        try {
+            chrome.contextMenus.create({
+                id: MD_VIEW_MENU_ID, title: "Open in Markdown Viewer", contexts: ["link", "page"],
+                targetUrlPatterns: ["*://*/*.md", "*://*/*.markdown", "file://*/*.md", "file://*/*.markdown"],
+            });
+        } catch { /* */ }
+    } else {
+        void chrome.contextMenus.remove(MD_VIEW_MENU_ID).catch(() => undefined);
+    }
 
     // CRX-Snip context menus
     try { chrome.contextMenus.create({ id: "crx-snip-text", title: "Process Text with CWSP-crx (CRX-Snip)", contexts: ["selection"] }); } catch { /* */ }
@@ -857,6 +1093,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 
     // Markdown viewer
     if (menuId === MD_VIEW_MENU_ID) {
+        if (!CRX_MARKDOWN_URL_INTERCEPT) return;
         const candidate = (info as any).linkUrl || (info as any).pageUrl;
         if (candidate && isMarkdownUrl(candidate)) {
             void openMarkdownInViewer(candidate, tabId ?? 0).then((opened) => {
@@ -1047,23 +1284,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ ok: false, error: "unsupported-source" });
                 return;
             }
-            if (tabId > 0 && shouldThrottleMarkdownRedirect(tabId)) {
-                sendResponse({ ok: true, redirected: false, reason: "throttled" });
-                return;
-            }
-            let text = typeof message?.text === "string" ? message.text : "";
-            if (!text.trim() && tabId > 0) {
-                text = await tryReadMarkdownFromTab(tabId, source);
-            }
-            if (!text.trim()) {
-                const fetched = await fetchMarkdownText(source).catch(() => null);
-                if (fetched?.ok && fetched.text?.trim()) {
-                    text = fetched.text;
-                }
-            }
-            const key = text.trim() ? await putMarkdownToSession(text) : null;
-            openViewer(source, tabId > 0 ? tabId : undefined, key);
-            sendResponse({ ok: true, redirected: true, key: key || null });
+            const text = typeof message?.text === "string" ? message.text : "";
+            const opened = await openFileMarkdownFromTab(tabId, source, text);
+            sendResponse({ ok: !!opened, redirected: !!opened });
         })().catch((error) => {
             sendResponse({ ok: false, error: String(error) });
         });
@@ -1093,30 +1316,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 sendResponse({ ok: false, error: "not-markdown-path" });
                 return;
             }
-            const fetched = await fetchMarkdownText(fileUrl).catch(() => null);
-            if (!fetched?.ok || !fetched.text?.trim()) {
-                sendResponse({ ok: false, error: "fetch-failed", status: fetched?.status });
+            const opened = await openFileMarkdownFromTab(-1, fileUrl);
+            sendResponse({ ok: !!opened, redirected: !!opened, error: opened ? undefined : "no-file-tab" });
+        })().catch((error) => {
+            sendResponse({ ok: false, error: String(error) });
+        });
+        return true;
+    }
+
+    if (message.type === "crx:open-markdown-text") {
+        (async () => {
+            const text = String(message?.text || "").trim();
+            if (!text) {
+                sendResponse({ ok: false, error: "empty-text" });
                 return;
             }
-            if (!isDefinitelyMarkdownResponse(fetched.src, fetched.text, fetched.contentType) && !MARKDOWN_EXT_RE.test(new URL(fileUrl).pathname)) {
-                sendResponse({ ok: false, error: "not-markdown" });
-                return;
-            }
-            const key = await putMarkdownToSession(fetched.text);
+            const key = await putMarkdownToSession(text);
             if (!key) {
                 sendResponse({ ok: false, error: "session-store-failed" });
                 return;
             }
-            let filename = "";
-            try {
-                filename = decodeURIComponent(new URL(fileUrl).pathname.split("/").pop() || "");
-            } catch { /* ignore */ }
-            const viewer = `${VIEWER_URL}?${new URLSearchParams({
-                mdk: key,
-                origin: "file",
-                ...(filename ? { filename } : {}),
-            }).toString()}`;
-            chrome.tabs.create({ url: viewer })?.catch?.(console.warn);
+            const filename = String(message?.filename || "").trim();
+            const p = new URLSearchParams({ mdk: key, origin: "file" });
+            if (filename) p.set("filename", filename);
+            chrome.tabs.create({ url: `${VIEWER_URL}?${p}` })?.catch?.(console.warn);
             sendResponse({ ok: true, key });
         })().catch((error) => {
             sendResponse({ ok: false, error: String(error) });
@@ -1249,6 +1472,37 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true;
     }
 
+    if (message.type === "md:pending-src") {
+        const tabId = typeof sender?.tab?.id === "number" ? sender.tab.id : -1;
+        void takePendingMarkdown(tabId).then((pending) => {
+            sendResponse({ ok: Boolean(pending.src || pending.key), src: pending.src, key: pending.key });
+        }).catch(() => sendResponse({ ok: false, src: "", key: "" }));
+        return true;
+    }
+
+    if (message.type === "md:load") {
+        void (async () => {
+            const src = typeof message.src === "string" ? message.src : "";
+            if (!src) { sendResponse({ ok: false, error: "missing src" }); return; }
+            if (/^file:/i.test(src)) {
+                sendResponse({ ok: false, src, error: "file-source" });
+                return;
+            }
+            const fetched = await fetchMarkdownText(src).catch(() => null);
+            if (!fetched?.ok || !fetched.text) {
+                sendResponse({ ok: false, status: fetched?.status, src, error: "fetch-failed" });
+                return;
+            }
+            if (!isDefinitelyMarkdownResponse(fetched.src, fetched.text, fetched.contentType)) {
+                sendResponse({ ok: false, status: fetched.status, src: fetched.src, error: "not-markdown" });
+                return;
+            }
+            const key = await putMarkdownToSession(fetched.text);
+            sendResponse({ ok: true, status: fetched.status, src: fetched.src, key });
+        })().catch((error) => sendResponse({ ok: false, error: String(error) }));
+        return true;
+    }
+
     // share-target
     if (message.type === "share-target") {
         const { title, text, url, files } = message.data || {};
@@ -1266,7 +1520,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // Markdown auto-detection (webNavigation)
 // ============================================================================
 
+chrome.webNavigation?.onBeforeNavigate?.addListener?.((details) => {
+    if (!CRX_MARKDOWN_URL_INTERCEPT) return;
+    if (details.frameId !== 0) return;
+    if (!isMarkdownUrl(details.url) || details.url.startsWith(VIEWER_ORIGIN) || details.url.startsWith("file:")) return;
+    rememberPendingMarkdown(details.tabId, details.url);
+    prefetchPendingMarkdown(details.tabId, details.url);
+    /* WHY: Do not wait for fetch — the raw GitHub document is sandboxed and other
+     * extensions (JPEG XL Viewer) spawn blob workers into default-src 'none'. */
+    chrome.tabs.update(details.tabId, { url: toViewerUrl(toFetchableMarkdownUrl(details.url)) })?.catch?.(() => undefined);
+});
+
+/* WHY: DNR can rewrite the tab to viewer.html before webNavigation sees the .md URL.
+ * Stash the original request so md:pending-src still has a source. */
+chrome.webRequest?.onBeforeRequest?.addListener?.((details) => {
+    if (!CRX_MARKDOWN_URL_INTERCEPT) return;
+    if (details.tabId < 0 || details.type !== "main_frame") return;
+    if (details.url.startsWith(VIEWER_ORIGIN) || details.url.startsWith("file:")) return;
+    if (!isMarkdownUrl(details.url)) return;
+    rememberPendingMarkdown(details.tabId, details.url);
+    prefetchPendingMarkdown(details.tabId, details.url);
+}, { urls: ["http://*/*", "https://*/*"], types: ["main_frame"] });
+
+chrome.webRequest?.onBeforeRedirect?.addListener?.((details) => {
+    if (!CRX_MARKDOWN_URL_INTERCEPT) return;
+    if (details.tabId < 0 || details.type !== "main_frame") return;
+    if (!isMarkdownUrl(details.url) || details.url.startsWith("file:")) return;
+    rememberPendingMarkdown(details.tabId, details.url);
+}, { urls: ["http://*/*", "https://*/*"], types: ["main_frame"] });
+
 chrome.webNavigation?.onCommitted?.addListener?.((details) => {
+    if (!CRX_MARKDOWN_URL_INTERCEPT) return;
+    if (details.frameId !== 0) return;
+    if (!details.url.startsWith(VIEWER_URL)) return;
+    let parsed: URL;
+    try { parsed = new URL(details.url); } catch { return; }
+    if (parsed.searchParams.get("src") || parsed.searchParams.get("mdk") || parsed.searchParams.get("content") || parsed.searchParams.get("text") || parsed.searchParams.get("append")) return;
+    void takePendingMarkdown(details.tabId).then((pending) => {
+        if (!pending.src && !pending.key) return;
+        chrome.tabs.update(details.tabId, { url: toViewerUrl(pending.src || undefined, pending.key || null) })?.catch?.(() => undefined);
+    });
+});
+
+chrome.webNavigation?.onCommitted?.addListener?.((details) => {
+    if (!CRX_MARKDOWN_URL_INTERCEPT) return;
     if (details.frameId !== 0) return;
     const { tabId, url } = details;
     if (!isMarkdownUrl(url) || url.startsWith(VIEWER_ORIGIN) || url.startsWith("file:")) return;
@@ -1274,37 +1571,109 @@ chrome.webNavigation?.onCommitted?.addListener?.((details) => {
 });
 
 chrome.webNavigation?.onHistoryStateUpdated?.addListener?.((details) => {
+    if (!CRX_MARKDOWN_URL_INTERCEPT) return;
     if (details.frameId !== 0) return;
     const { tabId, url } = details;
-    if (!isMarkdownUrl(url) || url.startsWith(VIEWER_ORIGIN)) return;
+    if (!isMarkdownUrl(url) || url.startsWith(VIEWER_ORIGIN) || url.startsWith("file:")) return;
     void openMarkdownInViewer(url, tabId);
 });
 
-chrome.webNavigation?.onCompleted?.addListener?.((details) => {
-    (async () => {
-        if (details.frameId !== 0) return;
-        const { tabId, url } = details;
-        if (!isMarkdownUrl(url) || url.startsWith(VIEWER_ORIGIN) || !url.startsWith("file:")) return;
-        const text = await tryReadMarkdownFromTab(tabId, url);
-        const key = text ? await putMarkdownToSession(text) : null;
-        openViewer(url, tabId, key);
-    })().catch(console.warn);
+const fileMarkdownOpenInflight = new Map<string, Promise<boolean>>();
+
+const fileUrlKey = (url: string): string => {
+    try {
+        return new URL(url).href.split("#")[0] || url;
+    } catch {
+        return url;
+    }
+};
+
+const findTabIdForFileUrl = async (fileUrl: string, preferId?: number): Promise<number> => {
+    if (typeof preferId === "number" && preferId > 0) return preferId;
+    const needle = fileUrlKey(fileUrl);
+    const tabs = await chrome.tabs.query({}).catch(() => []);
+    for (const tab of tabs || []) {
+        if (!tab.id || !tab.url || !tab.url.startsWith("file:")) continue;
+        if (fileUrlKey(tab.url) === needle) return tab.id;
+    }
+    return -1;
+};
+
+const scrapeFileMarkdownTab = async (tabId: number): Promise<string> => {
+    if (tabId <= 0) return "";
+    /* WHY: Isolated-world func only — do not inject the Vite content-script loader
+     * (`files: ["content/main.ts"]`) and do not fetch(file://). */
+    for (let i = 0; i < 10; i++) {
+        const text = (await tryReadMarkdownFromTab(tabId)).trim();
+        if (text) return text;
+        await new Promise<void>((resolve) => {
+            globalThis.setTimeout(resolve, 80);
+        });
+    }
+    return "";
+};
+
+const closeTabsShowingFileUrl = async (fileUrl: string, preferId?: number): Promise<void> => {
+    const ids = new Set<number>();
+    if (typeof preferId === "number" && preferId > 0) ids.add(preferId);
+    const needle = fileUrlKey(fileUrl);
+    const tabs = await chrome.tabs.query({}).catch(() => []);
+    for (const tab of tabs || []) {
+        if (!tab.id || !tab.url || !tab.url.startsWith("file:")) continue;
+        if (fileUrlKey(tab.url) === needle) ids.add(tab.id);
+    }
+    await Promise.all([...ids].map((id) => chrome.tabs.remove(id).catch(() => undefined)));
+};
+
+async function openFileMarkdownFromTab(tabId: number, url: string, prefetchedText?: string): Promise<boolean> {
+    if (!isMarkdownUrl(url) || url.startsWith(VIEWER_ORIGIN) || !url.startsWith("file:")) return false;
+    const gate = fileUrlKey(url);
+    const existing = fileMarkdownOpenInflight.get(gate);
+    if (existing) return existing;
+    const run = (async () => {
+        if (tabId > 0 && shouldThrottleMarkdownRedirect(tabId)) return false;
+        let text = String(prefetchedText || "").trim();
+        const sourceTabId = await findTabIdForFileUrl(url, tabId);
+        if (!text) text = await scrapeFileMarkdownTab(sourceTabId);
+        if (!text) return false;
+        const key = await putMarkdownToSession(text);
+        if (!key) return false;
+        await chrome.tabs.create({ url: toViewerUrl(url, key) }).catch(() => null);
+        await closeTabsShowingFileUrl(url, sourceTabId);
+        if (tabId > 0) markMarkdownRedirect(tabId);
+        return true;
+    })();
+    fileMarkdownOpenInflight.set(gate, run);
+    return run.finally(() => {
+        fileMarkdownOpenInflight.delete(gate);
+    });
+}
+
+chrome.webNavigation?.onDOMContentLoaded?.addListener?.((details) => {
+    if (details.frameId !== 0) return;
+    if (details.url?.startsWith("file:")) return;
+    void openFileMarkdownFromTab(details.tabId, details.url).catch(console.warn);
 });
 
-chrome.webRequest?.onHeadersReceived?.addListener?.((details: chrome.webRequest.WebResponseHeadersDetails) => {
-    if (details?.tabId < 0) return;
-    if (!details?.url || details?.url?.startsWith(VIEWER_ORIGIN)) return;
-    // file:// is handled by onCompleted + session preload; headers here can race and
-    // duplicate redirects with empty body reads.
-    if (details?.url?.startsWith("file:")) return;
-    if (details?.type !== "main_frame") return;
+chrome.webNavigation?.onCompleted?.addListener?.((details) => {
+    if (details.frameId !== 0) return;
+    if (details.url?.startsWith("file:")) return;
+    void openFileMarkdownFromTab(details.tabId, details.url).catch(console.warn);
+});
+
+chrome.webRequest?.onHeadersReceived?.addListener?.((details): chrome.webRequest.BlockingResponse => {
+    if (!CRX_MARKDOWN_URL_INTERCEPT) return {};
+    if (details?.tabId < 0) return {};
+    if (!details?.url || details?.url?.startsWith(VIEWER_ORIGIN)) return {};
+    if (details?.type !== "main_frame") return {};
 
     const markdownHint = parseMarkdownHeaders(details);
-    if (!markdownHint.typeLooksMarkdown && !markdownHint.plainTextWithMarkdownHint) return;
+    if (!markdownHint.typeLooksMarkdown && !markdownHint.plainTextWithMarkdownHint) return {};
 
     void openMarkdownInViewer(details?.url, details?.tabId);
+    return {};
 }, {
-    urls: ["<all_urls>"],
+    urls: ["http://*/*", "https://*/*"],
     types: ["main_frame"]
 }, ["responseHeaders", "extraHeaders"]);
 
@@ -1312,7 +1681,7 @@ chrome.webRequest?.onHeadersReceived?.addListener?.((details: chrome.webRequest.
 // CRX-Snip and pipeline message handlers
 // ============================================================================
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     (async () => {
         // CRX-Snip processing
         if (message?.type === "crx-snip") {
@@ -1398,6 +1767,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
                 bodyBase64: read.file.base64,
                 bodyBytes: bytes.buffer
             });
+            return;
+        }
+
+        if (message?.type === "md:pending-src") {
+            const tabId = typeof sender?.tab?.id === "number" ? sender.tab.id : -1;
+            const pending = await takePendingMarkdown(tabId);
+            sendResponse({ ok: Boolean(pending.src || pending.key), src: pending.src, key: pending.key });
             return;
         }
 
@@ -2082,7 +2458,8 @@ async function broadcastToClients(type: string, data: any): Promise<void> {
 
 //
 /** When true, this is the Vite dev worker (`/dev-sw.js`): precache + SWR would freeze HMR and the speed-dial shell. */
-const isViteDevServiceWorker = import.meta.env.DEV;
+// @ts-ignore
+const isViteDevServiceWorker = import.meta?.env?.DEV;
 
 // @ts-ignore
 const manifest = self.__WB_MANIFEST;
@@ -4024,7 +4401,10 @@ registerRoute(
 
 // Use preload response for navigation when available
 registerRoute(
-    ({ url, request }) => request.mode === 'navigate' && !safeIsUserScopePath(url?.pathname || ""),
+    ({ url, request }) =>
+        request.mode === 'navigate' &&
+        url?.protocol !== "file:" &&
+        !safeIsUserScopePath(url?.pathname || ""),
     async ({ event, request }: any) => {
         try {
             const preloadPromise = event?.preloadResponse

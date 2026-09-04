@@ -4,7 +4,7 @@
  * Manages:
  *  - Snip & Process actions (Feature #2)
  *  - Copy-as-* buttons (Feature #3)
- *  - Markdown Viewer URL opener (Feature #1)
+ *  - Markdown Viewer local File… (Feature #1; URL open is CWSP-document)
  *  - Settings (API key, language, translate, SVG)
  */
 
@@ -261,30 +261,6 @@ const applyCrxUi = (ui: Partial<CrxUiSettings>) => {
     root.dataset.crxAccent = t.accent || "blue";
 };
 
-/** Windows / Unix absolute paths → file: URL for markdown open. */
-const pathInputToFileUrl = (raw: string): string | null => {
-    const t = (raw || "").trim();
-    if (!t) return null;
-    if (/^file:/i.test(t)) {
-        try { return new URL(t).href; } catch { return null; }
-    }
-    if (/^[a-z]:[\\/]/i.test(t)) {
-        const p = t.replace(/\\/g, "/");
-        try { return new URL(`file:///${p}`).href; } catch { return null; }
-    }
-    if (t.startsWith("\\\\")) {
-        const p = t.replace(/\\/g, "/");
-        try { return new URL(`file:${p}`).href; } catch { return null; }
-    }
-    if (t.startsWith("/")) {
-        try { return new URL(`file://${t}`).href; } catch { return null; }
-    }
-    return null;
-};
-
-const isMarkdownPath = (href: string) =>
-    /\.(?:md|markdown|mdown|mkd|mkdn|mdtxt|mdtext)(?:$|[?#])/i.test(href);
-
 // ---------------------------------------------------------------------------
 // Helper: send message to active tab content script, then close popup
 // ---------------------------------------------------------------------------
@@ -311,7 +287,7 @@ const isUsablePopupTargetTab = (tab: chrome.tabs.Tab | undefined | null) => {
     if (!tab) return false;
     if (typeof tab.id !== "number" || tab.id < 0) return false;
     const url = tab.url || "";
-    return !url.startsWith("chrome-extension://") && !url.startsWith("chrome://") && !url.startsWith("devtools://");
+    return !url.startsWith("chrome-extension://") && !url.startsWith("chrome://") && !url.startsWith("devtools://") && !url.startsWith("file:");
 };
 
 const getActiveTabId = async () => {
@@ -486,69 +462,27 @@ const initCopyButtons = () => {
 // ---------------------------------------------------------------------------
 
 const initMarkdownViewer = () => {
-    const input = document.getElementById("md-url") as HTMLInputElement;
-    const btn = document.getElementById("md-open") as HTMLButtonElement;
+    const pick = document.getElementById("md-file") as HTMLInputElement | null;
+    const pickBtn = document.getElementById("md-pick") as HTMLButtonElement | null;
 
-    const normalizeMarkdownCandidate = (value: string): string => {
-        const raw = (value || "").trim();
-        if (!raw) return "";
-        const fileFromPath = pathInputToFileUrl(raw);
-        if (fileFromPath && isMarkdownPath(fileFromPath)) return fileFromPath;
-        if (/^(https?:|file:|ftp:)/i.test(raw)) return raw;
-        if (raw.startsWith("//")) return `https:${raw}`;
-        return `https://${raw}`;
-    };
-
-    const openUrl = () => {
-        const raw = (input?.value || "").trim();
-        if (!raw) return;
-
-        const tryFile = pathInputToFileUrl(raw) || (/^file:/i.test(raw) ? normalizeMarkdownCandidate(raw) : "");
-        if (tryFile && /^file:/i.test(tryFile) && isMarkdownPath(tryFile)) {
-            chrome.runtime.sendMessage({ type: "crx:open-markdown-file", url: tryFile }, (r) => {
-                if (chrome.runtime.lastError || !r?.ok) {
-                    const vu = chrome.runtime.getURL("markdown/viewer.html");
-                    const guide =
-                        "> **CWSP-crx could not read this local markdown file.**\n>\n" +
-                        "> 1. Open `chrome://extensions`, find CWSP-crx.\n>\n" +
-                        "> 2. Enable **Allow access to file URLs**.\n>\n" +
-                        "> 3. Try again.\n>\n" +
-                        "> Opening the raw `file:` tab is blocked by Chromium nested-file security.";
-                    chrome.tabs.create({ url: `${vu}?append=${encodeURIComponent(guide)}` });
+    const openPickedMarkdown = (file: File) => {
+        void file.text().then((text) => {
+            if (!String(text || "").trim()) return;
+            chrome.runtime.sendMessage(
+                { type: "crx:open-markdown-text", text, filename: file.name },
+                () => {
+                    if (chrome.runtime.lastError) return;
                     globalThis?.close?.();
-                    return;
-                }
-                globalThis?.close?.();
-            });
-            return;
-        }
-
-        const url = normalizeMarkdownCandidate(raw);
-        if (!url) return;
-        if (/^file:/i.test(url)) {
-            chrome.runtime.sendMessage({ type: "crx:open-markdown-file", url }, (r) => {
-                if (chrome.runtime.lastError || !r?.ok) {
-                    const vu = chrome.runtime.getURL("markdown/viewer.html");
-                    const guide =
-                        "> **CWSP-crx could not read this local markdown file.**\n>\n" +
-                        "> 1. Open `chrome://extensions`, find CWSP-crx.\n>\n" +
-                        "> 2. Enable **Allow access to file URLs**.\n>\n" +
-                        "> 3. Try again.\n>\n" +
-                        "> Opening the raw `file:` tab is blocked by Chromium nested-file security.";
-                    chrome.tabs.create({ url: `${vu}?append=${encodeURIComponent(guide)}` });
-                }
-                globalThis?.close?.();
-            });
-            return;
-        }
-        const viewerUrl = chrome.runtime.getURL("markdown/viewer.html");
-        chrome.tabs.create({ url: `${viewerUrl}?src=${encodeURIComponent(url)}` });
-        globalThis?.close?.();
+                },
+            );
+        });
     };
 
-    btn?.addEventListener("click", openUrl);
-    input?.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") openUrl();
+    pickBtn?.addEventListener("click", () => pick?.click());
+    pick?.addEventListener("change", () => {
+        const file = pick.files?.[0];
+        if (file) openPickedMarkdown(file);
+        pick.value = "";
     });
 };
 

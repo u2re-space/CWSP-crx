@@ -76,7 +76,17 @@ const escapeRegExp = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\
  * output stays structured. `lure` and `fl-ui` intentionally remain merged into
  * `com/app.js` to avoid circular-init / TDZ regressions.
  */
+/** Inter font registry shards — keep each under the 2048 kB CRX warning. */
+export const fontRegistryCodeSplittingGroups = [
+    { name: "vendor-fonts-variable", test: /font-registry-variable/, priority: 180 },
+    { name: "vendor-fonts-inter-roman", test: /font-registry-inter-roman/, priority: 180 },
+    { name: "vendor-fonts-inter-italic", test: /font-registry-inter-italic/, priority: 180 },
+    { name: "vendor-fonts-display-roman", test: /font-registry-display-roman/, priority: 180 },
+    { name: "vendor-fonts-display-italic", test: /font-registry-display-italic/, priority: 180 },
+];
+
 export const rolldownCodeSplittingGroups = [
+    ...fontRegistryCodeSplittingGroups,
     {
         name: "vite-preload",
         test: /vite\/modulepreload-polyfill|vite\/preload-helper/,
@@ -130,6 +140,11 @@ export function manualChunks(id) {
     if (p.includes("vite/modulepreload-polyfill") || p.includes("vite/preload-helper") || p.includes("\0vite/")) {
         return "vite-preload";
     }
+    if (p.includes("font-registry-variable")) return "vendor-fonts-variable";
+    if (p.includes("font-registry-inter-roman")) return "vendor-fonts-inter-roman";
+    if (p.includes("font-registry-inter-italic")) return "vendor-fonts-inter-italic";
+    if (p.includes("font-registry-display-roman")) return "vendor-fonts-display-roman";
+    if (p.includes("font-registry-display-italic")) return "vendor-fonts-display-italic";
 
     // `fest/object` — must stay out of `com-app` (lure/fl-ui/DOM). Realpath is
     // `.../modules/projects/object.ts/src/...`; if this is assigned to `com-app`, `com-service`

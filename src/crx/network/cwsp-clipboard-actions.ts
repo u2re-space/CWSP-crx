@@ -397,6 +397,8 @@ const insertPasteIntoTab = async (opts: PasteTabOpts, text: string): Promise<boo
         if (resp?.ok) return true;
     } catch {
         try {
+            const tab = await chrome.tabs.get(tabId).catch(() => null);
+            if (tab?.url?.startsWith("file:")) throw new Error("skip-file-content-script");
             await chrome.scripting.executeScript({
                 target: scriptTarget(opts),
                 files: ["content/main.ts"],

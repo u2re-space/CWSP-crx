@@ -31,6 +31,8 @@
         "tabCapture",
         "downloads",
         "webNavigation",
+        "declarativeNetRequest",
+        "declarativeNetRequestWithHostAccess",
         "offscreen",
         "notifications",
         "commands",
@@ -42,6 +44,15 @@
         "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src 'self' https: ws: wss: http://127.0.0.1:* http://localhost:* https://cdn.jsdelivr.net https://unpkg.com data: blob:; frame-src https://u2re.space https://*.u2re.space *;",
         "sandbox": "sandbox allow-scripts allow-forms allow-popups allow-modals; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' 'wasm-eval' http://**/* https://**/* file://**/*; child-src 'self';"
     },
+    "declarative_net_request": {
+        "rule_resources": [
+            {
+                "id": "md_raw",
+                "enabled": false,
+                "path": "rules/markdown-raw.json"
+            }
+        ]
+    },
     "host_permissions": [
         "<all_urls>",
         "file://**/*",
@@ -52,9 +63,12 @@
     "content_scripts": [
         {
             "matches": [
-                "<all_urls>",
-                "file:///**/*",
-                "file://**/*"
+                "http://*/*",
+                "https://*/*"
+            ],
+            "exclude_matches": [
+                "https://raw.githubusercontent.com/*",
+                "https://gist.githubusercontent.com/*"
             ],
             "js": [
                 "content/main.ts"
@@ -86,9 +100,8 @@
                 "newtab/*"
             ],
             "matches": [
-                "<all_urls>",
-                "file://*/*",
-                "file:///*"
+                "http://*/*",
+                "https://*/*"
             ]
         }
     ],
