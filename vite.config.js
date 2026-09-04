@@ -17,7 +17,23 @@ const CRX_SW_SHARED_CHUNK = "crx-sw-shared";
 
 /** Rolldown (Vite 8) uses `output.codeSplitting.groups`; `manualChunks` alone may not isolate chunks. */
 const CRX_SW_SHARED_CHUNK_TEST =
-    /\/modules\/projects\/core\.ts\/|\/fest\/core\/|\/dom-globals-polyfill|\/node_modules\/jsox\/|\/node_modules\/@toon-format\/|\/src\/com\/config\/|\/src\/frontend\/shared\/config\/|\/src\/core\/document\/AIResponseParser|\/src\/core\/utils\/Runtime|\/src\/core\/constants\/data-paths|\/src\/core\/storage\/FileSystem|\/src\/(?:com\/template|frontend\/shared\/template)\/Entity(?:Id|Utils)|\/src\/(?:com\/store|frontend\/shared\/store)\/IDBQueue|\/src\/(?:com\/service|frontend\/shared\/service)\/instructions\/(?:core|templates|utils|AIInstructions)|\/src\/(?:com\/service|frontend\/shared\/service)\/model\/GPT-Config/;
+    /\/modules\/projects\/core\.ts\/|\/fest\/core\/|\/modules\/projects\/uniform\.ts\/|\/fest\/uniform\/|\/dom-globals-polyfill|\/lur\.e\/src\/utils\/opfs\/Base64Data|\/routing\/pwa\/sw-cache|\/routing\/pwa\/sw-result-wire|\/node_modules\/jsox\/|\/node_modules\/@toon-format\/|\/src\/com\/config\/|\/src\/frontend\/shared\/config\/|\/src\/shared\/other\/config\/|\/src\/core\/document\/AIResponseParser|\/src\/core\/utils\/Runtime|\/src\/core\/constants\/data-paths|\/src\/core\/storage\/FileSystem|\/src\/(?:com\/template|frontend\/shared\/template)\/Entity(?:Id|Utils)|\/src\/(?:com\/store|frontend\/shared\/store)\/IDBQueue|\/src\/(?:com\/service|frontend\/shared\/service)\/instructions\/(?:core|templates|utils|AIInstructions)|\/src\/(?:com\/service|frontend\/shared\/service)\/model\/GPT-Config/;
+
+/**
+ * WHY: Settings / websocket / UniformInterop have no `com-*` path, so Rolldown
+ * dumps them into an auto chunk (`packet-wire-hash.js`) with `StateStorage`.
+ * That chunk then static-imports `fest/dom` (`dataset.owner`) and MV3 dies (15).
+ */
+const CRX_SW_WIRE_CHUNK_TEST =
+    /\/other\/config\/Settings(?:Types)?(?:\.ts|$)|\/other\/config\/(?:open-policy|process-ingress|settings-host)|\/routing\/native\/(?:cws-bridge|clipboard-device|capacitor-clipboard)|\/routing\/channel\/(?:UniformInterop|UnifiedMessagingSw|CrxMessaging)|\/boot\/(?:websocket|native-socket|hub-socket-boot)|\/packet-wire-hash|\/remote-connection-runtime|\/airpad-cwsp-client-parity|\/crx\/network\/(?:Coordinator|cwsp-clipboard|neutralino-clipboard)/;
+
+/**
+ * WHY: do **not** name this `com-app` — Rolldown folds SW-shared modules into
+ * that chunk and `workbox-core` static-imports `com/app.js` (status 15).
+ */
+const CRX_UI_STATE_CHUNK = "crx-ui-state";
+const CRX_UI_STATE_CHUNK_TEST =
+    /\/store\/StateStorage|\/routing\/core\/workspace-files-api/;
 
 /**
  * WHY: Rolldown (Vite 8) panics in `compute_cross_chunk_links` when
@@ -42,6 +58,23 @@ const crxRolldownCodeSplitting = {
             ...fontRegistryCodeSplittingGroups,
             {
                 name: CRX_SW_SHARED_CHUNK,
+                test: /\/lur\.e\/src\/utils\/opfs\/Base64Data/,
+                priority: 200,
+            },
+            {
+                name: CRX_UI_STATE_CHUNK,
+                test: CRX_UI_STATE_CHUNK_TEST,
+                // WHY: below sw-shared so JSOX / fest/core / uniform stay in sw-lib.
+                // Higher priority stole those shared deps and the SW imported ui-state (DOM).
+                priority: 40,
+            },
+            {
+                name: CRX_SW_SHARED_CHUNK,
+                test: CRX_SW_WIRE_CHUNK_TEST,
+                priority: 110,
+            },
+            {
+                name: CRX_SW_SHARED_CHUNK,
                 test: CRX_SW_SHARED_CHUNK_TEST,
                 priority: 100,
             },
@@ -52,6 +85,7 @@ const crxRolldownCodeSplitting = {
 const crxChunkFileNames = (chunkInfo) => {
     const n = chunkInfo.name || "";
     if (n === CRX_SW_SHARED_CHUNK || n.startsWith(`${CRX_SW_SHARED_CHUNK}-`)) return "com/sw-lib.js";
+    if (n === CRX_UI_STATE_CHUNK || n.startsWith(`${CRX_UI_STATE_CHUNK}-`)) return "com/ui-state.js";
     // Rolldown names the content-script slice `main.ts`; keep a stable path without `.ts.` in the filename
     // so packagers and `web_accessible_resources` never drop it as "source-looking" output.
     if (n === "main.ts" || n.endsWith("/main.ts")) return "chunks/crx-content-bootstrap.js";

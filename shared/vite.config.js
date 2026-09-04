@@ -473,6 +473,8 @@ export const initiate = (NAME = "generic", tsconfig = {}, __dirname = resolve(".
             { find: /^@fest-lib\/veela\/scss\/(.*)$/, replacement: `${resolve(workspaceRoot, "modules/projects/veela.css/src/scss")}/$1` },
             /* COMPAT: some CRX/SW paths still import bare `fest/lure`; package id is `@fest-lib/lure`. */
             { find: /^fest\/lure$/, replacement: "@fest-lib/lure" },
+            /* WHY: SW-safe leaf — do not let `@fest-lib/lure` prefix alias swallow this. */
+            { find: /^@fest-lib\/lure\/base64-data$/, replacement: resolve(workspaceRoot, "modules/projects/lur.e/src/utils/opfs/Base64Data.ts") },
             /* WHY: CRX Rolldown collapses `marked-katex-extension` onto `katex` default. */
             { find: /^marked-katex-extension$/, replacement: resolve(workspaceRoot, "node_modules/marked-katex-extension/src/index.js") },
             { find: /^@fest-lib\/fl-ui\/markdown\/highlight$/, replacement: resolve(workspaceRoot, "modules/projects/fl.ui/src/ui/markdown/highlight.ts") },

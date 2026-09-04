@@ -1066,11 +1066,33 @@ chrome.runtime.onInstalled.addListener(() => {
 // Context menu click routing
 // ============================================================================
 
+const canInjectContentScript = (url?: string | null): boolean => {
+    if (!url) return false;
+    try {
+        const protocol = new URL(url).protocol;
+        return protocol === "http:" || protocol === "https:";
+    } catch {
+        return false;
+    }
+};
+
+/* WHY: START_SNIP dies silently when the content script is missing (stale tab,
+ * file:// excluded). Inject once, then retry the message. */
 const sendToTabOrActive = async (tabId: number | undefined, message: unknown) => {
-    if (tabId != null && tabId >= 0) return chrome.tabs.sendMessage(tabId, message)?.catch?.(console.warn);
+    const send = async (id: number) => {
+        try {
+            return await chrome.tabs.sendMessage(id, message);
+        } catch {
+            const tab = await chrome.tabs.get(id).catch(() => null);
+            if (!tab || !canInjectContentScript(tab.url)) return;
+            await chrome.scripting.executeScript({ target: { tabId: id }, files: ["content/main.ts"] }).catch(() => {});
+            return chrome.tabs.sendMessage(id, message)?.catch?.(console.warn);
+        }
+    };
+    if (tabId != null && tabId >= 0) return send(tabId);
     const tabs = await chrome.tabs.query({ currentWindow: true, active: true })?.catch?.(() => []);
     for (const tab of tabs || []) {
-        if (tab?.id != null && tab.id >= 0) return chrome.tabs.sendMessage(tab.id, message)?.catch?.(console.warn);
+        if (tab?.id != null && tab.id >= 0) return send(tab.id);
     }
 };
 

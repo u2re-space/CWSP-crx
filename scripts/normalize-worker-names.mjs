@@ -101,6 +101,24 @@ const SW_WINDOW_POLYFILL_SOURCE = `/* crx-sw-window-polyfill */
 (() => {
   const g = globalThis;
   if (typeof g.window === "undefined") g.window = g;
+  if (typeof g.document === "undefined") {
+    const node = () => ({
+      relList: { supports: () => false },
+      style: {},
+      dataset: {},
+      setAttribute() {},
+      appendChild(c) { return c; },
+      removeChild(c) { return c; },
+    });
+    g.document = {
+      head: { appendChild(n) { return n; }, querySelector() { return null; } },
+      createElement: node,
+      querySelector() { return null; },
+      querySelectorAll() { return []; },
+      addEventListener() {},
+      removeEventListener() {},
+    };
+  }
 })();
 `;
 

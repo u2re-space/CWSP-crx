@@ -41,6 +41,7 @@ const CORE_STATIC_LURE_MARKERS = [
     "/src/core/storage/FileOps.ts",
     "/src/core/utils/Actions.ts",
     "/src/core/storage/StateStorage.ts",
+    "/store/StateStorage",
     "/src/core/document/Parser.ts",
     "/src/core/document/markdown.ts",
     "/src/core/document/index.ts",
@@ -134,6 +135,16 @@ function appSliceChunk(ns, rel) {
  */
 export function manualChunks(id) {
     const p = norm(id);
+
+    /* WHY: SW imports these leaves. If they share a chunk with fest/object, style-lib
+     * runs `el.dataset.owner = "DOM"` during MV3 registration and the worker dies. */
+    if (p.includes("/routing/pwa/sw-cache") || p.includes("/routing/pwa/sw-result-wire")) {
+        return "crx-sw-shared";
+    }
+    if (p.includes("/lur.e/src/utils/opfs/Base64Data")) return "crx-sw-shared";
+    if (p.includes("/store/StateStorage") || p.includes("/routing/core/workspace-files-api")) {
+        return CORE_CHUNK_NAME;
+    }
 
     // WHY: Vite 8 hoisted `__vitePreload` (export `Un`) into unhashed `com/app.js`.
     // A stale barrel then makes `__vitePreload(...).catch` throw (GLitElementImpl, etc.).
@@ -239,6 +250,10 @@ export function manualChunks(id) {
     const proj = p.match(/\/modules\/projects\/([^/]+)\//);
     if (proj) {
         const dir = proj[1];
+        /* WHY: SW imports these leaves; merging them into fest/object runs style-lib (`dataset.owner`) in MV3. */
+        if (p.includes("/lur.e/src/utils/opfs/Base64Data")) return "crx-sw-shared";
+        if (p.includes("/routing/pwa/sw-cache")) return "crx-sw-shared";
+        if (p.includes("/routing/pwa/sw-result-wire")) return "crx-sw-shared";
         if (dir === "lur.e") return "com-app";
         if (dir === "fl.ui") return "com-app";
         const key = FEST_DIR_TO_IMPORT[dir];

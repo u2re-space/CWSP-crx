@@ -82,6 +82,9 @@
             "@fest-lib/lure": [
                 "../../modules/projects/lur.e/src/index.ts"
             ],
+            "@fest-lib/lure/base64-data": [
+                "../../modules/projects/lur.e/src/utils/opfs/Base64Data.ts"
+            ],
             "@fest-lib/object": [
                 "../../modules/projects/object.ts/src/index.ts"
             ],
