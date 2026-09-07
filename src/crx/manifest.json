@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "CWSP-crx",
     "description": "Snip & Process (AI/OCR), Markdown Viewer, Math/Content Conversion (LaTeX/MathML/HTML/Markdown)",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "action": {
         "default_popup": "popup/index.html",
         "default_title": "CWSP-crx",
