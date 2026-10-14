@@ -15,7 +15,7 @@
 import { observe, ref } from "@fest-lib/object";
 import { preloadStyle, loadInlineStyle } from "@fest-lib/dom";
 import { ensureStyleSheet } from "@fest-lib/icon";
-import { initializeAppCanvasLayer, refreshAppWallpaperPaint, restoreWallpaperThemeCache } from "@fest-lib/image";
+import { initializeAppCanvasLayer, refreshAppWallpaperPaint, restoreWallpaperThemeCache, warmAppWallpaper } from "@fest-lib/image";
 import { closeHighestPriority, hasActiveCloseable } from "@fest-lib/lure";
 import type { ShellId, ShellLayoutConfig, ViewId, ViewOptions } from "shells/types";
 import { ShellBase } from "boot/shells";
@@ -221,6 +221,7 @@ export class EnvironmentShell extends ShellBase {
             return;
         }
         this.container = container;
+        warmAppWallpaper();
         // WHY: CWSP ships `assets/wallpaper.jpg`; stock.jpg is optional demo parity symlink.
         seedEnvironmentWallpaperIfUnset("/assets/wallpaper.jpg");
         defineEnvironmentShellContainer();
