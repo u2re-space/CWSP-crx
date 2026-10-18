@@ -39,6 +39,7 @@
         "capacitor-native-settings": "^8.2.0",
         "chrome-types": "^0.1.443",
         "country-flag-emoji-polyfill": ">=0.1.10",
+        "css-typed-om": "^1.0.0",
         "cssnano": ">=9.0.3",
         "cssnano-preset-advanced": "^9.0.3",
         "culori": ">=4.0.2",
