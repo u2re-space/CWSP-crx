@@ -1481,7 +1481,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 if (!ai?.apiKey) { sendResponse({ ok: false, error: "No API key configured" }); return; }
 
                 const baseUrl = ai.baseUrl || "https://api.proxyapi.ru/v1";
-                const model = ai.model || "gpt-5.6-luna";
+                const model = ai.model || "gpt-6-luna";
                 const res = await fetch(`${baseUrl}/responses`, {
                     method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ai.apiKey}` },
                     body: JSON.stringify({ model, input: inputText, instructions: instruction, reasoning: { effort: "low" }, text: { verbosity: "low" } }),
