@@ -1242,6 +1242,26 @@ const captureScreenArea = async (options?: { rect?: { x: number; y: number; widt
         const bin = atob(b64);
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        // WHY: captureVisibleTab has no rect param — opts.rect is ignored and the
+        // capture is the whole visible tab. Crop to the requested rect here so
+        // "recognize" sees only what the user selected.
+        if (options?.rect && options.rect.width > 0 && options.rect.height > 0) {
+            try {
+                const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+                const dpr = Math.max(1, bitmap.width / Math.max(1, tabs[0].width || bitmap.width));
+                const r = options.rect;
+                const sx = Math.max(0, Math.min(bitmap.width - 1, Math.round(r.x * dpr)));
+                const sy = Math.max(0, Math.min(bitmap.height - 1, Math.round(r.y * dpr)));
+                const sw = Math.max(1, Math.min(bitmap.width - sx, Math.round(r.width * dpr)));
+                const sh = Math.max(1, Math.min(bitmap.height - sy, Math.round(r.height * dpr)));
+                const canvas = new OffscreenCanvas(sw, sh);
+                canvas.getContext("2d")?.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+                bitmap.close();
+                return await canvas.convertToBlob({ type: "image/png" }).then((b) => b.arrayBuffer());
+            } catch (e) {
+                console.warn("[capture] rect crop failed, using full screenshot:", e);
+            }
+        }
         return bytes.buffer;
     } catch {
         // Fallback: desktop capture via offscreen document
@@ -1720,6 +1740,32 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 else sendResponse({ success: false, error: "Capture cancelled" });
             } catch (e) { sendResponse({ success: false, error: e instanceof Error ? e.message : String(e) }); }
             return;
+        }
+
+        // WHY: the popup dies when it closes, so its setTimeout(relay) never ran.
+        // The popup now asks the SW to drive the flow: rect-select in the content
+        // script (after the popup is gone), then forward the rect to the capture.
+        if (message?.type === "crx-snip-screen-select") {
+            (async () => {
+                try {
+                    const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+                    const tabId = Number.isFinite(message?.tabId) && message.tabId >= 0
+                        ? message.tabId
+                        : tabs[0]?.id;
+                    if (tabId == null) { sendResponse({ ok: false, error: "No active tab" }); return; }
+                    // Small delay lets the popup actually close before the overlay shows.
+                    await new Promise((r) => setTimeout(r, 120));
+                    const response = await sendToTabOrActive(tabId, { type: "crx-snip-select-rect" });
+                    const rect = (response as any)?.rect;
+                    if (!rect) { sendResponse({ ok: false, error: (response as any)?.error || "Selection cancelled" }); return; }
+                    const imageData = await captureScreenArea({ rect, scale: 1 });
+                    if (!imageData) { sendResponse({ ok: false, error: "Capture cancelled" }); return; }
+                    sendResponse(await processCrxSnipWithPipeline(imageData, "image"));
+                } catch (e) {
+                    sendResponse({ ok: false, error: e instanceof Error ? e.message : String(e) });
+                }
+            })();
+            return true;
         }
 
         // Pipeline management

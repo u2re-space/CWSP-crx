@@ -269,9 +269,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
     (async () => {
         try {
-            if (!(typeof window != "undefined" ? window : globalThis).crxSnipSelectRect) await new Promise((r) => setTimeout(r, 100));
-            if (!(typeof window != "undefined" ? window : globalThis).crxSnipSelectRect) throw new Error("Rect selector not available");
-            sendResponse({ rect: await (typeof window != "undefined" ? window : globalThis)?.crxSnipSelectRect?.() });
+            // WHY: the content bundle loads via dynamic import after document_start;
+            // rect-selector registers on DOMContentLoaded (needs document.body).
+            // One 100ms wait loses the race on slow pages — poll until ready.
+            const getSelector = () => (typeof window != "undefined" ? window : globalThis)?.crxSnipSelectRect;
+            for (let waited = 0; !getSelector() && waited < 2000; waited += 100) {
+                await new Promise((r) => setTimeout(r, 100));
+            }
+            if (!getSelector()) throw new Error("Rect selector not available");
+            sendResponse({ rect: await getSelector() });
         } catch (e) {
             sendResponse({ rect: null, error: e instanceof Error ? e.message : String(e) });
         }

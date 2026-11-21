@@ -133,6 +133,9 @@ const extractRecognizedText = (result: RecognizeResult): string => {
 /**
  * Capture the visible tab as a data-URL, optionally cropped.
  * Compresses large images and validates the result.
+ * WHY: chrome.tabs.captureVisibleTab has no rect param — opts.rect is silently
+ * ignored and the capture is the whole visible tab. Crop to the requested rect
+ * on an OffscreenCanvas so recognize/solve/code/css see only the selection.
  */
 const captureVisibleTab = async (options?: CaptureOptions): Promise<string> => {
     const captureOpts: { format: "png" | "jpeg"; quality?: number; rect?: any; scale?: number } = {
@@ -150,7 +153,31 @@ const captureVisibleTab = async (options?: CaptureOptions): Promise<string> => {
         });
     });
 
-    let finalUrl = await compressIfNeeded(dataUrl);
+    let finalUrl = dataUrl;
+    const rect = options?.rect;
+    if (rect && rect.width > 0 && rect.height > 0) {
+        try {
+            // @ts-ignore — Uint8Array.fromBase64/toBase64 available in modern Chrome
+            const binary = Uint8Array.fromBase64(removeAnyPrefix(dataUrl), { alphabet: "base64" });
+            const bitmap = await createImageBitmap(new Blob([binary], { type: "image/png" }));
+            const sx = Math.max(0, Math.min(bitmap.width - 1, Math.round(rect.x)));
+            const sy = Math.max(0, Math.min(bitmap.height - 1, Math.round(rect.y)));
+            const sw = Math.max(1, Math.min(bitmap.width - sx, Math.round(rect.width)));
+            const sh = Math.max(1, Math.min(bitmap.height - sy, Math.round(rect.height)));
+            const canvas = new OffscreenCanvas(sw, sh);
+            canvas.getContext("2d")?.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+            bitmap.close();
+            const croppedBlob = await canvas.convertToBlob({ type: "image/png" });
+            // @ts-ignore — Uint8Array.prototype.toBase64 available in modern Chrome
+            const croppedB64: string = new Uint8Array(await croppedBlob.arrayBuffer()).toBase64({ alphabet: "base64" });
+            finalUrl = `data:image/png;base64,${croppedB64}`;
+        } catch (e) {
+            console.warn("[api] rect crop failed, using full screenshot:", e);
+            finalUrl = dataUrl;
+        }
+    }
+
+    finalUrl = await compressIfNeeded(finalUrl);
     if (!finalUrl || !(await ableToShowImage(finalUrl))) finalUrl = dataUrl;
     return finalUrl;
 };

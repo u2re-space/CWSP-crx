@@ -409,17 +409,15 @@ const initSnipActions = () => {
         if (!action) return;
 
         if (action === "CRX_SNIP_SCREEN") {
-            // Close popup first, then trigger rect selection in content script
+            // Close popup first, then trigger rect selection in content script.
+            // WHY: closing the popup destroys this JS context — a setTimeout after
+            // close() never fires. Send through the service worker instead: it
+            // survives the popup and forwards the request to the content script,
+            // then relays the chosen rect to the capture pipeline.
             const tabId = await getActiveTabId();
             if (tabId == null) return;
+            await chrome.runtime.sendMessage({ type: "crx-snip-screen-select", tabId }).catch(console.warn);
             globalThis?.close?.();
-
-            setTimeout(() => {
-                chrome.tabs.sendMessage(tabId, { type: "crx-snip-select-rect" }, (response) => {
-                    if (chrome.runtime.lastError || !response?.rect) return;
-                    chrome.runtime.sendMessage({ type: "crx-snip-screen-capture", rect: response.rect, scale: 1 }).catch(console.warn);
-                });
-            }, 100);
             return;
         }
 

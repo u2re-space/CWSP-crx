@@ -3,9 +3,13 @@
 
 @scope (:root[data-crx-page="popup"]) {
 @layer components {
+    /* WHY: inside @scope, selectors match only DESCENDANTS of the scoping root.
+       <html> is not its own descendant — :root/html rules inside never match.
+       The scoping root itself must be styled via :scope (MDN: "@scope (.light-scheme) { :scope { … } }").
+       INVARIANT: theme tokens live on :scope so every var(--crx-popup-*) below resolves. */
     /* Extension popups often resolve `light-dark()` and prefers-color-scheme as *light*.
        Default the shell to dark tokens; only [data-crx-theme="light"] / system+light OS use light. */
-    :root[data-crx-page="popup"] {
+    :scope {
         color-scheme: dark;
         --crx-accent: #4da3ff;
         --crx-popup-bg: rgba(22 22 28 / 96%);
@@ -18,7 +22,7 @@
         --crx-popup-placeholder: rgb(255 255 255 / 38%);
     }
 
-    :root[data-crx-page="popup"][data-crx-theme="dark"] {
+    :scope[data-crx-theme="dark"] {
         color-scheme: dark;
         --crx-popup-bg: rgba(22 22 28 / 96%);
         --crx-popup-fg: #f1f5f9;
@@ -30,7 +34,7 @@
         --crx-popup-placeholder: rgb(255 255 255 / 38%);
     }
 
-    :root[data-crx-page="popup"][data-crx-theme="light"] {
+    :scope[data-crx-theme="light"] {
         color-scheme: light;
         --crx-popup-bg: rgba(255 255 255 / 96%);
         --crx-popup-fg: #0f172a;
@@ -43,7 +47,7 @@
     }
 
     /* System: dark-first; only switch to light when the OS explicitly prefers light. */
-    :root[data-crx-page="popup"][data-crx-theme="system"] {
+    :scope[data-crx-theme="system"] {
         color-scheme: dark;
         --crx-popup-bg: rgba(22 22 28 / 96%);
         --crx-popup-fg: #f1f5f9;
@@ -56,7 +60,7 @@
     }
 
     @media (prefers-color-scheme: light) {
-        :root[data-crx-page="popup"][data-crx-theme="system"] {
+        :scope[data-crx-theme="system"] {
             color-scheme: light;
             --crx-popup-bg: rgba(255 255 255 / 96%);
             --crx-popup-fg: #0f172a;
@@ -69,15 +73,15 @@
         }
     }
 
-    :root[data-crx-page="popup"][data-crx-accent="violet"] { --crx-accent: #a78bfa; }
-    :root[data-crx-page="popup"][data-crx-accent="green"] { --crx-accent: #34d399; }
-    :root[data-crx-page="popup"][data-crx-accent="orange"] { --crx-accent: #fb923c; }
+    :scope[data-crx-accent="violet"] { --crx-accent: #a78bfa; }
+    :scope[data-crx-accent="green"] { --crx-accent: #34d399; }
+    :scope[data-crx-accent="orange"] { --crx-accent: #fb923c; }
 
-    :root[data-crx-page="popup"][data-crx-font="ui"] {
+    :scope[data-crx-font="ui"] {
         font-family: "Segoe UI", system-ui, sans-serif;
     }
 
-    :root[data-crx-page="popup"][data-crx-font="mono"] {
+    :scope[data-crx-font="mono"] {
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
 
