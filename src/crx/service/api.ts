@@ -190,7 +190,7 @@ const captureVisibleTab = async (options?: CaptureOptions): Promise<string> => {
     const captureOpts: { format: "png" | "jpeg"; quality?: number } = { format: "png" };
 
     const dataUrl = await new Promise<string>((resolve, reject) => {
-        chrome.tabs.captureVisibleTab(captureOpts, (url) => {
+        chrome.tabs.captureVisibleTab(captureOpts as any, (url) => {
             if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
             else resolve(url);
         });
@@ -485,8 +485,12 @@ export const COPY_HACK = async (
             // 4. Direct clipboard API (service worker — limited support)
             try {
                 if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-                    await navigator.clipboard.writeText(text);
-                    return resolve({ ok: true });
+                    return (await new Promise(async (rv)=>{
+                        await new Promise((rvf) => requestAnimationFrame(rvf));
+                        await navigator.clipboard.writeText(text);
+                        return rv(resolve({ ok: true }));
+                    }));
+                    
                 }
             } catch { /* continue */ }
 

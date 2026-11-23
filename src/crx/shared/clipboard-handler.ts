@@ -246,6 +246,7 @@ export const handleCopyRequest = async (
 
     console.log(`[Clipboard] Attempting to copy ${text.length} characters (${detectContext()})`);
 
+    await new Promise((rv)=>requestAnimationFrame(rv));
     const result = await writeTextWithRAF(text, maxRetries);
 
     console.log(`[Clipboard] Copy result:`, result);
