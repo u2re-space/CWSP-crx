@@ -258,17 +258,11 @@ if (isInCrxEnvironment && chrome.runtime?.onMessage) {
         if (message.type === "processCapture") {
             (async () => {
                 try {
-                    const rect = message.data?.rect;
-                    const opts: chrome.tabs.CaptureVisibleTabOptions & { rect?: any; scale?: number } = { format: "png", scale: 1 };
-                    if (rect?.width > 0 && rect?.height > 0) opts.rect = rect;
-
-                    const dataUrl = await new Promise<string>((resolve, reject) => {
-                        chrome.tabs.captureVisibleTab(opts, (url) => {
-                            chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(url);
-                        });
-                    });
-                    const blob = await (await fetch(dataUrl)).blob();
-                    const result = await swAi.recognizeImageData(blob);
+                    // COMPAT: captureVisibleTab takes only ImageDetails {format, quality} —
+                    // no rect key. Route through the crop-aware capture instead.
+                    const imageData = await captureScreenArea(message.data?.rect ? { rect: message.data.rect } : undefined);
+                    if (!imageData) { sendResponse({ success: false, error: "Capture failed" }); return; }
+                    const result = await swAi.recognizeImageData(new Blob([imageData], { type: "image/png" }));
                     sendResponse({ success: true, result });
                 } catch (error) {
                     sendResponse({ success: false, error: error instanceof Error ? error.message : String(error) });
@@ -1229,27 +1223,38 @@ chrome.commands.onCommand.addListener(async (command) => {
 // Screen capture helper (tab capture + desktop capture fallback)
 // ============================================================================
 
-const captureScreenArea = async (options?: { rect?: { x: number; y: number; width: number; height: number }; scale?: number }): Promise<ArrayBuffer | null> => {
+const captureScreenArea = async (options?: {
+    rect?: { x: number; y: number; width: number; height: number };
+    /** Sender's devicePixelRatio (includes zoom); preferred over the bitmap/tab-width ratio. */
+    dprHint?: number;
+}): Promise<ArrayBuffer | null> => {
     try {
         const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
         if (!tabs[0]?.id) throw new Error("No active tab");
 
-        const opts: chrome.tabs.CaptureVisibleTabOptions & { rect?: any; scale?: number } = { format: "png", quality: 100, scale: options?.scale ?? 1 };
-        if (options?.rect) opts.rect = options.rect;
+        // COMPAT: captureVisibleTab takes only ImageDetails {format, quality}.
+        // INVARIANT: never put rect (or any extra key) into these options —
+        // Chrome validates the object and throws "Unexpected property".
+        const opts: chrome.tabs.CaptureVisibleTabOptions = { format: "png", quality: 100 };
 
         const screenshot = await chrome.tabs.captureVisibleTab(tabs[0].windowId, opts);
         const b64 = screenshot.split(",")[1];
         const bin = atob(b64);
         const bytes = new Uint8Array(bin.length);
         for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        // WHY: captureVisibleTab has no rect param — opts.rect is ignored and the
-        // capture is the whole visible tab. Crop to the requested rect here so
-        // "recognize" sees only what the user selected.
+        // WHY: selection coords are CSS px, the bitmap is device px — scale by
+        // the sender's devicePixelRatio (dprHint, includes zoom), else by
+        // bitmap.width / tab.width. Ignoring this grabs the wrong region on
+        // HiDPI/zoomed tabs and recognition reports "No data recognized".
         if (options?.rect && options.rect.width > 0 && options.rect.height > 0) {
             try {
                 const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
-                const dpr = Math.max(1, bitmap.width / Math.max(1, tabs[0].width || bitmap.width));
                 const r = options.rect;
+                // WHY measured ratio wins: tab.width is the CSS viewport, but the
+                // capture can differ (OS scaling, DevTools docking); dprHint is
+                // the fallback when tab.width is unavailable.
+                const byViewport = tabs[0].width > 0 ? bitmap.width / tabs[0].width : 0;
+                const dpr = byViewport > 0 ? byViewport : (options.dprHint > 0 ? options.dprHint : 1);
                 const sx = Math.max(0, Math.min(bitmap.width - 1, Math.round(r.x * dpr)));
                 const sy = Math.max(0, Math.min(bitmap.height - 1, Math.round(r.y * dpr)));
                 const sw = Math.max(1, Math.min(bitmap.width - sx, Math.round(r.width * dpr)));
@@ -1500,15 +1505,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 const ai = (await settings)?.ai;
                 if (!ai?.apiKey) { sendResponse({ ok: false, error: "No API key configured" }); return; }
 
-                const baseUrl = ai.baseUrl || "https://api.proxyapi.ru/v1";
+                const baseUrl = (ai.baseUrl || "https://api.proxyapi.ru/v1").replace(/\/+$/, "");
                 const model = ai.model || "gpt-6-luna";
-                const res = await fetch(`${baseUrl}/responses`, {
+                // COMPAT: strict gateways (routerai) reject Responses-API extras
+                // (reasoning/text objects) with a bare 5xx — retry once with a
+                // minimal body of universally-accepted fields.
+                const fullBody = { model, input: inputText, instructions: instruction, reasoning: { effort: "low" }, text: { verbosity: "low" } };
+                const minimalBody = { model, input: inputText, instructions: instruction };
+                const fetchTranslate = (body: any) => fetch(`${baseUrl}/responses`, {
                     method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ai.apiKey}` },
-                    body: JSON.stringify({ model, input: inputText, instructions: instruction, reasoning: { effort: "low" }, text: { verbosity: "low" } }),
+                    body: JSON.stringify(body),
                 });
-                if (!res.ok) throw new Error(`Translation API: ${res.status}`);
+                let res = await fetchTranslate(fullBody);
+                if (!res.ok) {
+                    const detail = await res.text().catch(() => "");
+                    console.error("[gpt:translate] full-body failed:", res.status, detail.slice(0, 500));
+                    res = await fetchTranslate(minimalBody);
+                    if (!res.ok) {
+                        const detail2 = await res.text().catch(() => "");
+                        console.error("[gpt:translate] minimal-body failed:", res.status, detail2.slice(0, 500));
+                        throw new Error(`Translation API: ${res.status}${detail2 ? ` — ${detail2.slice(0, 300)}` : ""}`);
+                    }
+                }
                 const data = await res.json();
-                sendResponse({ ok: true, data: data?.output?.at?.(-1)?.content?.[0]?.text || inputText });
+                sendResponse({ ok: true, data: data?.output?.at?.(-1)?.content?.[0]?.text || data?.choices?.[0]?.message?.content || inputText });
             } catch (e) { sendResponse({ ok: false, error: String(e), data: inputText }); }
         })();
         return true;
@@ -1735,7 +1755,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Screen capture trigger from popup
         if (message?.type === "crx-snip-screen-capture") {
             try {
-                const imageData = await captureScreenArea(message.rect ? { rect: message.rect, scale: message.scale || 1 } : undefined);
+                const imageData = await captureScreenArea(message.rect ? { rect: message.rect, dprHint: message.dprHint } : message.dprHint ? { dprHint: message.dprHint } : undefined);
                 if (imageData) { sendResponse(await processCrxSnipWithPipeline(imageData, "image")); }
                 else sendResponse({ success: false, error: "Capture cancelled" });
             } catch (e) { sendResponse({ success: false, error: e instanceof Error ? e.message : String(e) }); }
@@ -1758,7 +1778,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                     const response = await sendToTabOrActive(tabId, { type: "crx-snip-select-rect" });
                     const rect = (response as any)?.rect;
                     if (!rect) { sendResponse({ ok: false, error: (response as any)?.error || "Selection cancelled" }); return; }
-                    const imageData = await captureScreenArea({ rect, scale: 1 });
+                    const imageData = await captureScreenArea({ rect, dprHint: (response as any)?.dprHint });
                     if (!imageData) { sendResponse({ ok: false, error: "Capture cancelled" }); return; }
                     sendResponse(await processCrxSnipWithPipeline(imageData, "image"));
                 } catch (e) {

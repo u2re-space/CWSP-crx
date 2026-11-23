@@ -277,7 +277,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
                 await new Promise((r) => setTimeout(r, 100));
             }
             if (!getSelector()) throw new Error("Rect selector not available");
-            sendResponse({ rect: await getSelector() });
+            const rect = await getSelector();
+            // WHY: the SW-side crop needs the page's devicePixelRatio to map
+            // CSS-px selection coords onto the device-px screenshot (HiDPI/zoom).
+            // INVARIANT: rect stays pure {x,y,width,height}; dprHint goes beside
+            // it — rects may reach captureVisibleTab options, where Chrome
+            // rejects unknown keys ("Unexpected property: 'dprHint'").
+            const dprHint = (typeof devicePixelRatio === "number" && devicePixelRatio > 0) ? devicePixelRatio : 1;
+            sendResponse({ rect, dprHint });
         } catch (e) {
             sendResponse({ rect: null, error: e instanceof Error ? e.message : String(e) });
         }

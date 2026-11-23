@@ -88,18 +88,33 @@ export const createRuntimeChannelModule = async (channelName: string, options?: 
     // Create a module-like interface
     const module: CrxRuntimeModule = {
         // Screen capture functionality (capture + AI processing)
-        async capture(rect?: { x: number; y: number; width: number; height: number }, mode?: string) {
+        async capture(rect?: { x: number; y: number; width: number; height: number }, mode?: string, dprHint?: number) {
+            // INVARIANT: rect stays pure {x,y,width,height} — it can reach
+            // captureVisibleTab options, where Chrome rejects extra keys.
+            // WHY dprHint: HiDPI/zoomed tabs — the SW crop maps CSS-px coords
+            // onto the device-px bitmap; without it the crop grabs the wrong
+            // region and recognition returns "No data recognized".
+            const tab = await this.getCurrentTab().catch(() => null);
             const result = await messagingChannel?.request?.('capture', [{
                 rect,
-                mode: mode || 'recognize'
+                mode: mode || 'recognize',
+                dprHint,
+                cssViewportWidth: tab?.width,
             }]);
             return result;
         },
 
         // Just capture screenshot, return image data
-        async captureScreenshot(rect?: { x: number; y: number; width: number; height: number }) {
+        async captureScreenshot(rect?: { x: number; y: number; width: number; height: number }, dprHint?: number) {
+            // WHY: HiDPI/zoomed tabs — the SW crop maps CSS-px rect onto the
+            // device-px bitmap via this tab's viewport width.
+            // INVARIANT: rect stays pure {x,y,width,height} — it can reach
+            // captureVisibleTab options, where Chrome rejects extra keys.
+            const tab = await this.getCurrentTab().catch(() => null);
             const result = await messagingChannel?.request?.('captureScreenshot', [{
-                rect
+                rect,
+                dprHint,
+                cssViewportWidth: tab?.width,
             }]);
             return result;
         },

@@ -68,7 +68,14 @@ const captureTab = async (rect?: CropArea, mode: SnipMode = "recognize") => {
     const payload: any = { type: meta.msgType, rect };
     if (mode === "custom" && customInstructionId) payload.instructionId = customInstructionId;
 
-    const result = await module.capture(rect, mode);
+    // WHY: on HiDPI/zoomed tabs the SW-side crop needs the sender's scale —
+    // devicePixelRatio and the tab's CSS viewport width — or the crop lands on
+    // the wrong region and recognition returns "No data recognized".
+    // INVARIANT: rect stays pure {x,y,width,height} — Chrome validates rect
+    // objects that reach captureVisibleTab options and rejects extra keys.
+    const dpr = (typeof devicePixelRatio === "number" && devicePixelRatio > 0) ? devicePixelRatio : 1;
+
+    const result = await module.capture(rect, mode, dpr);
 
     if (!result?.ok) {
         const rawError = (result?.error || meta.error || "").trim();

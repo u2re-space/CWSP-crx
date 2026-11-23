@@ -42,7 +42,10 @@ export type SnipMode = "recognize" | "solve" | "code" | "css" | "custom";
 
 interface CaptureOptions {
     rect?: { x: number; y: number; width: number; height: number };
-    scale?: number;
+    /** Sender's devicePixelRatio (includes browser zoom) for the HiDPI crop. */
+    dprHint?: number;
+    /** CSS px width of the captured tab's viewport (tab.width). Fallback scale source. */
+    cssViewportWidth?: number;
 }
 
 interface CaptureResult {
@@ -95,6 +98,51 @@ const compressIfNeeded = async (dataUrl: string): Promise<string> => {
     return dataUrl;
 };
 
+/**
+ * Crop a full-tab PNG data-URL to `rect` (CSS px) on an OffscreenCanvas.
+ * WHY: captureVisibleTab has no rect param (older Chrome) — this manual crop is
+ * the only one that applies. Selection coords are CSS px while the bitmap is
+ * device px — on HiDPI/zoomed tabs the ratio bitmap.width / viewport width is
+ * the scale factor; ignoring it grabs the top-left quadrant of the selection
+ * and the AI reports "No data recognized".
+ * INVARIANT: `rect` must stay pure {x,y,width,height} — callers may forward it
+ * into captureVisibleTab options, and Chrome's schema rejects extra keys
+ * ("Unexpected property: 'dprHint'"). Scale info travels beside the rect.
+ * SCALE: the measured bitmap/viewport-width ratio wins (ground truth); fallback
+ * is dprHint (sender devicePixelRatio, includes zoom), then 1. No Math.max(1,…):
+ * zoom < 100% is legal.
+ */
+export const cropDataUrlToRect = async (
+    dataUrl: string,
+    rect: { x: number; y: number; width: number; height: number },
+    scale?: { dprHint?: number; cssViewportWidth?: number },
+): Promise<string> => {
+    // @ts-ignore — Uint8Array.fromBase64/toBase64 available in modern Chrome
+    const binary = Uint8Array.fromBase64(removeAnyPrefix(dataUrl), { alphabet: "base64" });
+    const bitmap = await createImageBitmap(new Blob([binary], { type: "image/png" }));
+    try {
+        // WHY dprHint wins only when it explains the bitmap size: devicePixelRatio
+        // covers zoom, but OS-level scaling may differ from the capture; the
+        // bitmap/viewport ratio is measured ground truth. When they disagree
+        // (DevTools docked, OS zoom vs browser zoom), trust the measurement —
+        // a wrong factor crops a shifted region and the AI "recognizes" noise.
+        const byViewport = scale?.cssViewportWidth > 0 ? bitmap.width / scale.cssViewportWidth : 0;
+        const dpr = byViewport > 0 ? byViewport : (scale?.dprHint > 0 ? scale.dprHint : 1);
+        const sx = Math.max(0, Math.min(bitmap.width - 1, Math.round(rect.x * dpr)));
+        const sy = Math.max(0, Math.min(bitmap.height - 1, Math.round(rect.y * dpr)));
+        const sw = Math.max(1, Math.min(bitmap.width - sx, Math.round(rect.width * dpr)));
+        const sh = Math.max(1, Math.min(bitmap.height - sy, Math.round(rect.height * dpr)));
+        const canvas = new OffscreenCanvas(sw, sh);
+        canvas.getContext("2d")?.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
+        const croppedBlob = await canvas.convertToBlob({ type: "image/png" });
+        // @ts-ignore — Uint8Array.prototype.toBase64 available in modern Chrome
+        const croppedB64: string = new Uint8Array(await croppedBlob.arrayBuffer()).toBase64({ alphabet: "base64" });
+        return `data:image/png;base64,${croppedB64}`;
+    } finally {
+        bitmap.close();
+    }
+};
+
 /** Best-available timing function (RAF → setTimeout → immediate) */
 const schedule = (() => {
     if (typeof requestAnimationFrame !== "undefined") return requestAnimationFrame;
@@ -133,18 +181,13 @@ const extractRecognizedText = (result: RecognizeResult): string => {
 /**
  * Capture the visible tab as a data-URL, optionally cropped.
  * Compresses large images and validates the result.
- * WHY: chrome.tabs.captureVisibleTab has no rect param — opts.rect is silently
- * ignored and the capture is the whole visible tab. Crop to the requested rect
- * on an OffscreenCanvas so recognize/solve/code/css see only the selection.
+ * WHY: selection coords are CSS px but the bitmap is device px on HiDPI/zoomed
+ * tabs; cropDataUrlToRect scales by dprHint / viewport width, otherwise the AI
+ * sees a shifted (top-left) region and reports "No data recognized".
  */
 const captureVisibleTab = async (options?: CaptureOptions): Promise<string> => {
-    const captureOpts: { format: "png" | "jpeg"; quality?: number; rect?: any; scale?: number } = {
-        format: "png",
-        scale: options?.scale ?? 1,
-    };
-    if (options?.rect && options.rect.width > 0 && options.rect.height > 0) {
-        captureOpts.rect = options.rect;
-    }
+    // COMPAT: captureVisibleTab takes only ImageDetails {format, quality} — no rect/scale keys.
+    const captureOpts: { format: "png" | "jpeg"; quality?: number } = { format: "png" };
 
     const dataUrl = await new Promise<string>((resolve, reject) => {
         chrome.tabs.captureVisibleTab(captureOpts, (url) => {
@@ -157,20 +200,10 @@ const captureVisibleTab = async (options?: CaptureOptions): Promise<string> => {
     const rect = options?.rect;
     if (rect && rect.width > 0 && rect.height > 0) {
         try {
-            // @ts-ignore — Uint8Array.fromBase64/toBase64 available in modern Chrome
-            const binary = Uint8Array.fromBase64(removeAnyPrefix(dataUrl), { alphabet: "base64" });
-            const bitmap = await createImageBitmap(new Blob([binary], { type: "image/png" }));
-            const sx = Math.max(0, Math.min(bitmap.width - 1, Math.round(rect.x)));
-            const sy = Math.max(0, Math.min(bitmap.height - 1, Math.round(rect.y)));
-            const sw = Math.max(1, Math.min(bitmap.width - sx, Math.round(rect.width)));
-            const sh = Math.max(1, Math.min(bitmap.height - sy, Math.round(rect.height)));
-            const canvas = new OffscreenCanvas(sw, sh);
-            canvas.getContext("2d")?.drawImage(bitmap, sx, sy, sw, sh, 0, 0, sw, sh);
-            bitmap.close();
-            const croppedBlob = await canvas.convertToBlob({ type: "image/png" });
-            // @ts-ignore — Uint8Array.prototype.toBase64 available in modern Chrome
-            const croppedB64: string = new Uint8Array(await croppedBlob.arrayBuffer()).toBase64({ alphabet: "base64" });
-            finalUrl = `data:image/png;base64,${croppedB64}`;
+            finalUrl = await cropDataUrlToRect(dataUrl, rect, {
+                dprHint: options?.dprHint,
+                cssViewportWidth: options?.cssViewportWidth,
+            });
         } catch (e) {
             console.warn("[api] rect crop failed, using full screenshot:", e);
             finalUrl = dataUrl;
@@ -201,10 +234,14 @@ const captureAndProcess = async (
     ext: typeof chrome,
     rect: CaptureOptions["rect"],
     mode: SnipMode = "recognize",
-    extra?: { instructionId?: string; sender?: chrome.runtime.MessageSender },
+    extra?: { instructionId?: string; sender?: chrome.runtime.MessageSender; cssViewportWidth?: number; dprHint?: number },
 ): Promise<CaptureResult> => {
     // 1. Screenshot
-    const imageUrl = await captureVisibleTab({ rect });
+    const imageUrl = await captureVisibleTab({
+        rect,
+        cssViewportWidth: extra?.cssViewportWidth,
+        dprHint: extra?.dprHint,
+    });
 
     // 2. Convert to file
     const file = await dataUrlToFile(imageUrl, "snip.png");
@@ -245,11 +282,27 @@ const captureAndProcess = async (
 // Runtime channel handlers (for createRuntimeChannelModule calls)
 // ---------------------------------------------------------------------------
 
-const handleCapture = (ext: typeof chrome, data: any, sender: any) =>
-    captureAndProcess(ext, data.rect, data.mode || "recognize", { sender });
+const handleCapture = async (ext: typeof chrome, data: any, sender: any) => {
+    // WHY: the crop scales CSS-px coords by bitmap.width / viewport width; the
+    // sender tab's width is that viewport. sender.tab is absent for popup pages.
+    // INVARIANT: data.rect stays pure {x,y,width,height} — never attach dprHint
+    // to it; it can flow into captureVisibleTab options and Chrome rejects
+    // unknown keys there ("Unexpected property: 'dprHint'").
+    const tabId = sender?.tab?.id;
+    const tab = tabId != null ? await ext.tabs.get(tabId).catch(() => null) : null;
+    return captureAndProcess(ext, data.rect, data.mode || "recognize", {
+        sender,
+        cssViewportWidth: data.cssViewportWidth ?? tab?.width ?? undefined,
+        dprHint: data.dprHint,
+    });
+};
 
 const handleCaptureScreenshot = async (_ext: typeof chrome, data: any) => {
-    const imageUrl = await captureVisibleTab({ rect: data.rect });
+    const imageUrl = await captureVisibleTab({
+        rect: data.rect,
+        cssViewportWidth: data.cssViewportWidth,
+        dprHint: data.dprHint,
+    });
     return { ok: true, data: imageUrl, imageData: imageUrl };
 };
 
@@ -550,10 +603,15 @@ export const enableCapture = (ext: typeof chrome) => {
             const mode = CAPTURE_MODES[msg.type];
             (async () => {
                 try {
-                    const result = await captureAndProcess(ext, msg.rect, mode, {
-                        instructionId: msg.instructionId,
-                        sender,
-                    });
+                    if (mode === "custom" && msg.instructionId) {
+                        const custom = await captureAndProcess(ext, msg.rect, mode, {
+                            instructionId: msg.instructionId,
+                            sender,
+                        });
+                        sendResponse(custom);
+                        return;
+                    }
+                    const result = await handleCapture(ext, { rect: msg.rect, mode, dprHint: msg.dprHint }, sender);
                     sendResponse(result);
                 } catch (e) {
                     sendResponse({ ok: false, error: formatRuntimeError(e) });
